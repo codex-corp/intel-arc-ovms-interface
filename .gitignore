@@ -1,0 +1,19 @@
+# Virtual Environment
+.venv/
+__pycache__/
+*.pyc
+
+# Configuration (Local)
+config.env
+
+# OVMS Binary & Cache
+ovms/
+cache/
+
+# Generated Launch Scripts (Created by install_all.ps1)
+start_server.ps1
+run_ide_proxy.ps1
+proxy_server.py
+
+# Logs
+*.log
