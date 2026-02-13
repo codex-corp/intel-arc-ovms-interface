@@ -1,0 +1,11 @@
+{
+  "model": "qwen2.5-coder-7b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi"
+    }
+  ],
+  "max_tokens": 10,
+  "stream": true
+}
