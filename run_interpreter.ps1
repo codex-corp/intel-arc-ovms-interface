@@ -7,12 +7,12 @@
     Usage: .\run_interpreter.ps1 [prompt]
 #>
 
-$ScriptDir = $PSScriptRoot
-. "$ScriptDir\Load-Config.ps1"
-
 param(
     [string]$Prompt
 )
+
+$ScriptDir = $PSScriptRoot
+. "$ScriptDir\Load-Config.ps1"
 
 $VenvScript = "$VENV_DIR\Scripts\interpreter.exe"
 $ApiBase = "http://localhost:$OVMS_PORT/v3"

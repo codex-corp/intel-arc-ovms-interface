@@ -1,9 +1,13 @@
-# 🚀 Intel Arc A750 AI Server (Local Inference)
+# 🚀 Intel Arc AI Server (Local Inference)
 
-**A high-performance, local AI inference server running directly on Windows 11 using Intel Arc A750 graphics.**
+**A high-performance, local AI inference server running directly on Windows 11 using Intel Arc graphics.**
 
-This project sets up [OpenVINO Model Server (OVMS)](https://github.com/openvinotoolkit/model_server) to serve the **Qwen2.5-Coder-7B** model (INT4 quantized) with full XMX hardware acceleration. It provides an OpenAI-compatible API for use with coding agents, IDEs (PhpStorm, VS Code), and custom scripts.
+This project sets up [OpenVINO Model Server (OVMS)](https://github.com/openvinotoolkit/model_server) to serve a wide range of efficient **INT4 quantized LLMs** (including Qwen2.5-Coder, Llama, and more) with full XMX hardware acceleration. It provides an OpenAI-compatible API for use with coding agents, IDEs (PhpStorm, VS Code), and custom scripts.
 
+> **👨‍💻 Developer Note**
+> This project was born out of a need to bridge the gap between high-performance local hardware (Intel Arc) and the latest AI capabilities. I hope this interface empowers your local AI journey.
+>
+> Let's connect! You can find me on [LinkedIn](https://www.linkedin.com/in/hanyalsamman/).
 ---
 
 ## ⚡ Quick Start
