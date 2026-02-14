@@ -277,7 +277,8 @@ async def handle_proxy(request):
                                     # Strip unsupported fields
                                     for ch in data.get('choices', []):
                                         ch.get('delta', {}).pop('reasoning_content', None)
-                                    await client_response.write(f"data: {json.dumps(data)}\n".encode('utf-8'))
+                                    # Each SSE event must end with a blank line for strict clients.
+                                    await client_response.write(f"data: {json.dumps(data)}\n\n".encode('utf-8'))
                                     if is_completion:
                                         record_token()
                                         # Update progress every 10 tokens
