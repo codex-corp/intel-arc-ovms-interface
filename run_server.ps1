@@ -33,6 +33,26 @@ if (Test-NetConnection -ComputerName localhost -Port $Port -InformationLevel Qui
     Write-Host "API Key:    sk-dummy" -ForegroundColor White
     Write-Host "Model Name: $ModelName" -ForegroundColor White
     Write-Host ""
+
+    # Still launch proxy if requested (even when OVMS is already running)
+    if ($Proxy) {
+        $ProxyPort = $PROXY_PORT
+        $ProxyRunning = Test-NetConnection -ComputerName localhost -Port $ProxyPort -InformationLevel Quiet -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        if ($ProxyRunning) {
+            Write-Host "✅ Proxy is already running on port $ProxyPort" -ForegroundColor Green
+        }
+        else {
+            if ($ShowProxy) {
+                Write-Host "🚀 Starting Proxy (new window)..." -ForegroundColor Cyan
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Normal
+            }
+            else {
+                Write-Host "🚀 Starting Proxy (minimized)..." -ForegroundColor Cyan
+                Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Hidden
+            }
+        }
+    }
+
     Write-Host "Press any key to exit..." -ForegroundColor DarkGray
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     exit 0
@@ -44,14 +64,14 @@ Write-Host "🚀 Starting AI Server for IDE Integration..." -ForegroundColor Cya
 Write-Host "   Model: $ModelName (Intel Arc A750)" -ForegroundColor DarkGray
 
 # Optional Proxy Launch
-# Optional Proxy Launch
 if ($Proxy) {
     if ($ShowProxy) {
         Write-Host "   Proxy: Enabled (Launching in new window)..." -ForegroundColor DarkGray
         Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Normal
-    } else {
-        Write-Host "   Proxy: Enabled (Job Mode - No new window)..." -ForegroundColor DarkGray
-        $Job = Start-Job -FilePath "$PSScriptRoot\run_ide_proxy.ps1"
+    }
+    else {
+        Write-Host "   Proxy: Enabled (Minimized window)..." -ForegroundColor DarkGray
+        Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Hidden
     }
 }
 
@@ -64,4 +84,4 @@ Write-Host "   Model:      $ModelName" -ForegroundColor White
 Write-Host ""
 
 # Launch start_server.ps1
-& "g:\ai-interface\start_server.ps1" -VerboseOutput:$VerboseOutput
+& "$PSScriptRoot\start_server.ps1" -VerboseOutput:$VerboseOutput
