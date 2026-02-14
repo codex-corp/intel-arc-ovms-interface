@@ -16,18 +16,18 @@ $ScriptDir = $PSScriptRoot
 # --- Load Configuration ---
 . "$ScriptDir\Load-Config.ps1"
 
-# Top 10 OpenVINO INT4 Models (Verified for Arc A750)
+# Top 10 OpenVINO INT4 Models (Arc A750 16GB VRAM / 80GB RAM)
 $Models = @(
-    @{ Name="Qwen2.5-Coder-7B-Instruct"; ID="OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov"; Size="~5 GB"; Desc="Best for Coding (Default)" },
-    @{ Name="Llama-3-8B-Instruct";       ID="OpenVINO/Meta-Llama-3-8B-Instruct-int4-ov"; Size="~5 GB"; Desc="Strong Generalist" },
-    @{ Name="Mistral-7B-v0.1";           ID="OpenVINO/Mistral-7B-v0.1-int4-ov";          Size="~4.5 GB"; Desc="High Performance Base" },
-    @{ Name="Phi-3-mini-4k-instruct";    ID="OpenVINO/Phi-3-mini-4k-instruct-int4-ov";   Size="~2.5 GB"; Desc="Fast / Low VRAM" },
-    @{ Name="Gemma-7b-it";               ID="OpenVINO/gemma-7b-it-int4-ov";              Size="~5 GB"; Desc="Google's Open Model" },
-    @{ Name="Qwen2.5-7B-Instruct";       ID="OpenVINO/Qwen2.5-7B-Instruct-int4-ov";      Size="~5 GB"; Desc="General Purpose Qwen" },
-    @{ Name="Hermes-2-Pro-Llama-3-8B";   ID="OpenVINO/Hermes-2-Pro-Llama-3-8B-int4-ov";  Size="~5 GB"; Desc="Agentic / Action Calling" },
-    @{ Name="Starling-LM-7B-alpha";      ID="OpenVINO/Starling-LM-7B-alpha-int4-ov";     Size="~4.5 GB"; Desc="High Quality Chat" },
-    @{ Name="Zephyr-7b-beta";            ID="OpenVINO/zephyr-7b-beta-int4-ov";           Size="~4.5 GB"; Desc="Refined Mistral" },
-    @{ Name="TinyLlama-1.1B-Chat";       ID="OpenVINO/TinyLlama-1.1B-Chat-v1.0-int4-ov"; Size="~0.7 GB"; Desc="Ultra-Fast Debug" }
+    @{ Name = "Qwen2.5-Coder-7B-Instruct"; ID = "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov"; Size = "~5 GB"; Desc = "Best for Coding (Default)" },
+    @{ Name = "Qwen3-8B"; ID = "OpenVINO/Qwen3-8B-int4-ov"; Size = "~5 GB"; Desc = "Latest Qwen3, Strong All-Round" },
+    @{ Name = "Qwen3-4B"; ID = "OpenVINO/Qwen3-4B-int4-ov"; Size = "~3 GB"; Desc = "Fast Qwen3, Great Quality/Speed" },
+    @{ Name = "Qwen3-14B"; ID = "OpenVINO/Qwen3-14B-int4-ov"; Size = "~8 GB"; Desc = "Largest Qwen3, Best Quality" },
+    @{ Name = "DeepSeek-R1-Distill-7B"; ID = "OpenVINO/DeepSeek-R1-Distill-Qwen-7B-int4-ov"; Size = "~5 GB"; Desc = "DeepSeek R1 Reasoning" },
+    @{ Name = "DeepSeek-R1-Distill-14B"; ID = "OpenVINO/DeepSeek-R1-Distill-Qwen-14B-int4-ov"; Size = "~8 GB"; Desc = "DeepSeek R1 Reasoning, Larger" },
+    @{ Name = "Phi-4-mini-instruct"; ID = "OpenVINO/Phi-4-mini-instruct-int4-ov"; Size = "~5 GB"; Desc = "Microsoft Phi-4 Mini" },
+    @{ Name = "Phi-4"; ID = "OpenVINO/phi-4-int4-ov"; Size = "~8 GB"; Desc = "Microsoft Phi-4 Full (14B)" },
+    @{ Name = "Mixtral-8x7B-Instruct"; ID = "OpenVINO/mixtral-8x7b-instruct-v0.1-int4-ov"; Size = "~24 GB"; Desc = "MoE ⚠️ Needs CPU offload" },
+    @{ Name = "Qwen3-1.7B"; ID = "OpenVINO/Qwen3-1.7B-int4-ov"; Size = "~1.2 GB"; Desc = "Ultra-Fast Debug & Testing" }
 )
 
 # --- Interactive Setup Mode ---
@@ -73,10 +73,12 @@ if ($Setup) {
         . "$ScriptDir\Load-Config.ps1"
 
         Write-Host "  ✅ Configuration updated!" -ForegroundColor Green
-    } elseif ($selection -eq 'c') {
+    }
+    elseif ($selection -eq 'c') {
         Write-Host "  Setup cancelled." -ForegroundColor Yellow
         exit
-    } else {
+    }
+    else {
         Write-Host "  Invalid selection." -ForegroundColor Red
         exit 1
     }
@@ -94,7 +96,8 @@ Write-Host ""
 $known = $Models | Where-Object { $_.Name -eq $MODEL_NAME }
 if ($known) {
     $ModelId = $known.ID
-} else {
+}
+else {
     # Fallback: Check if MODEL_NAME looks like an ID, otherwise warn
     # Assuming config might have full ID or short name. For now, trust config triggers correct path.
     # Actually, huggingface-cli needs the repo ID.
@@ -106,7 +109,8 @@ if ($known) {
 
     if ($MODEL_NAME -eq "qwen2.5-coder-7b") {
         $ModelId = "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov"
-    } else {
+    }
+    else {
         # Try to find match in list by Name
         Write-Host "⚠️  Unknown model name in config: $MODEL_NAME" -ForegroundColor Yellow
         Write-Host "   Assuming it is a valid huggingface repo ID or you manually handle it." -ForegroundColor Yellow
@@ -120,7 +124,8 @@ Write-Host "  Repo ID: $ModelId" -ForegroundColor DarkGray
 try {
     $hfVer = huggingface-cli --version 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Not found" }
-} catch {
+}
+catch {
     Write-Host "  ⚠️  huggingface-cli not found. Installing..." -ForegroundColor Yellow
     pip install --upgrade huggingface_hub[cli]
 }
@@ -132,12 +137,59 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "  ✅ Download complete!" -ForegroundColor Green
 
-    # --- Auto-Generate graph.pbtxt for the new model ---
-    # This ensures start_server.ps1 works immediately
+    # --- Auto-Generate graph.pbtxt based on model size tier ---
+    # Tiers: Small (≤3GB) / Medium (≤5GB) / Large (8GB+) / MoE (CPU offload)
     $GraphPath = Join-Path $MODEL_PATH "graph.pbtxt"
-    if (-not (Test-Path $GraphPath)) {
-        Write-Host "  Creating graph.pbtxt..." -ForegroundColor Yellow
-        $GraphContent = @'
+
+    # Determine tier from selected model or size string
+    $sizeStr = ""
+    $isMoE = $false
+    if ($known) {
+        $sizeStr = $known.Size
+        if ($known.Desc -match "MoE") { $isMoE = $true }
+    }
+
+    # Parse approximate GB from size string like "~5 GB"
+    $sizeGb = 5  # default
+    if ($sizeStr -match '~?(\d+\.?\d*)') { $sizeGb = [double]$Matches[1] }
+
+    if ($isMoE) {
+        # MoE: use AUTO device for CPU+GPU, conservative cache
+        $device = "AUTO"
+        $cacheSize = 2
+        $maxSeqs = 2
+        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
+        $tierLabel = "MoE (AUTO: GPU+CPU offload)"
+    }
+    elseif ($sizeGb -le 3) {
+        # Small models: plenty of VRAM headroom
+        $device = "GPU"
+        $cacheSize = 10
+        $maxSeqs = 8
+        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
+        $tierLabel = "Small (high throughput)"
+    }
+    elseif ($sizeGb -le 5) {
+        # Medium models: balanced
+        $device = "GPU"
+        $cacheSize = 4
+        $maxSeqs = 4
+        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
+        $tierLabel = "Medium (balanced)"
+    }
+    else {
+        # Large models: conservative to fit in 16GB
+        $device = "GPU"
+        $cacheSize = 2
+        $maxSeqs = 2
+        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
+        $tierLabel = "Large (conservative)"
+    }
+
+    Write-Host "  Generating graph.pbtxt [$tierLabel]..." -ForegroundColor Yellow
+    Write-Host "    device=$device  cache_size=$cacheSize  max_num_seqs=$maxSeqs" -ForegroundColor DarkGray
+
+    $GraphContent = @"
 input_stream: "HTTP_REQUEST_PAYLOAD:input"
 output_stream: "HTTP_RESPONSE_PAYLOAD:output"
 node: {
@@ -152,11 +204,11 @@ node: {
   node_options: {
     [type.googleapis.com / mediapipe.LLMCalculatorOptions]: {
       models_path: "./"
-      cache_size: 2
-      device: "GPU"
+      cache_size: $cacheSize
+      device: "$device"
       enable_prefix_caching: true
-      max_num_seqs: 2
-      plugin_config: "{\"KV_CACHE_PRECISION\": \"u8\"}"
+      max_num_seqs: $maxSeqs
+      plugin_config: $pluginCfg
     }
   }
   input_stream_handler {
@@ -164,14 +216,14 @@ node: {
     options { [mediapipe.SyncSetInputStreamHandlerOptions.ext] { sync_set { tag_index: "LOOPBACK:0" } } }
   }
 }
-'@
-        Set-Content -Path $GraphPath -Value $GraphContent
-        Write-Host "  ✅ Created graph.pbtxt" -ForegroundColor Green
-    }
+"@
+    Set-Content -Path $GraphPath -Value $GraphContent
+    Write-Host "  ✅ Created graph.pbtxt" -ForegroundColor Green
 
     Write-Host ""
     Write-Host "  🚀 Model Ready! Run '.\install_all.ps1' or '.\start_server.ps1' to launch." -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "  ❌ Download failed." -ForegroundColor Red
 }
 Write-Host ""
