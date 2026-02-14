@@ -66,7 +66,9 @@ https://huggingface.co/collections/OpenVINO/llm
 
 ```powershell
 .\download_model.ps1 -Setup -PerformanceProfile Balanced
+```
 
+```plain
 ═══════════════════════════════════════════════════════════
   Select Model to Install (INT4 Optimized)
 ═══════════════════════════════════════════════════════════
