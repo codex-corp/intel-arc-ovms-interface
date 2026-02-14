@@ -7,7 +7,9 @@
     Setup mode (-Setup): Displays a menu of top 10 models, updates config.env, and downloads.
 #>
 param (
-    [switch]$Setup
+    [switch]$Setup,
+    [ValidateSet("Safe", "Balanced", "Fast")]
+    [string]$PerformanceProfile = "Balanced"
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,74 +122,72 @@ else {
 
 Write-Host "  Repo ID: $ModelId" -ForegroundColor DarkGray
 
-# Check huggingface-cli
+# Resolve Python executable (prefer config.env value)
+$PythonExe = $PYTHON_EXE
+if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
+    $PythonExe = "python"
+}
+# Ensure huggingface_hub is importable (avoid CLI binary/version issues)
 try {
-    $hfVer = huggingface-cli --version 2>&1
+    & $PythonExe -c "import huggingface_hub" *> $null
     if ($LASTEXITCODE -ne 0) { throw "Not found" }
 }
 catch {
-    Write-Host "  ⚠️  huggingface-cli not found. Installing..." -ForegroundColor Yellow
-    pip install --upgrade huggingface_hub[cli]
+    Write-Host "  ⚠️  huggingface_hub not found. Installing..." -ForegroundColor Yellow
+    & $PythonExe -m pip install --upgrade huggingface_hub
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install huggingface_hub using $PythonExe"
+    }
 }
 
 Write-Host "  Downloading..." -ForegroundColor Yellow
-huggingface-cli download $ModelId --local-dir $MODEL_PATH
+$TempPy = Join-Path $env:TEMP "hf_snapshot_download.py"
+$PyCode = @"
+from huggingface_hub import snapshot_download
 
-if ($LASTEXITCODE -eq 0) {
+snapshot_download(
+    repo_id=r'''$ModelId''',
+    local_dir=r'''$MODEL_PATH''',
+    local_dir_use_symlinks=False
+)
+"@
+Set-Content -Path $TempPy -Value $PyCode -Encoding UTF8
+& $PythonExe $TempPy
+$DownloadExit = $LASTEXITCODE
+Remove-Item $TempPy -ErrorAction SilentlyContinue
+
+if ($DownloadExit -eq 0) {
     Write-Host ""
     Write-Host "  ✅ Download complete!" -ForegroundColor Green
 
-    # --- Auto-Generate graph.pbtxt based on model size tier ---
-    # Tiers: Small (≤3GB) / Medium (≤5GB) / Large (8GB+) / MoE (CPU offload)
+    # --- Auto-Generate graph.pbtxt with user-selected profile ---
     $GraphPath = Join-Path $MODEL_PATH "graph.pbtxt"
+    $device = "GPU"
+    switch ($PerformanceProfile) {
+        "Safe" {
+            $cacheSize = 2
+            $maxSeqs = 2
+        }
+        "Balanced" {
+            $cacheSize = 4
+            $maxSeqs = 4
+        }
+        "Fast" {
+            $cacheSize = 8
+            $maxSeqs = 8
+        }
+        default {
+            $cacheSize = 4
+            $maxSeqs = 4
+        }
+    }
+    $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
 
-    # Determine tier from selected model or size string
-    $sizeStr = ""
-    $isMoE = $false
-    if ($known) {
-        $sizeStr = $known.Size
-        if ($known.Desc -match "MoE") { $isMoE = $true }
-    }
-
-    # Parse approximate GB from size string like "~5 GB"
-    $sizeGb = 5  # default
-    if ($sizeStr -match '~?(\d+\.?\d*)') { $sizeGb = [double]$Matches[1] }
-
-    if ($isMoE) {
-        # MoE: use AUTO device for CPU+GPU, conservative cache
-        $device = "AUTO"
-        $cacheSize = 2
-        $maxSeqs = 2
-        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
-        $tierLabel = "MoE (AUTO: GPU+CPU offload)"
-    }
-    elseif ($sizeGb -le 3) {
-        # Small models: plenty of VRAM headroom
-        $device = "GPU"
-        $cacheSize = 10
-        $maxSeqs = 8
-        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
-        $tierLabel = "Small (high throughput)"
-    }
-    elseif ($sizeGb -le 5) {
-        # Medium models: balanced
-        $device = "GPU"
-        $cacheSize = 4
-        $maxSeqs = 4
-        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
-        $tierLabel = "Medium (balanced)"
-    }
-    else {
-        # Large models: conservative to fit in 16GB
-        $device = "GPU"
-        $cacheSize = 2
-        $maxSeqs = 2
-        $pluginCfg = '"{\"KV_CACHE_PRECISION\": \"u8\"}"'
-        $tierLabel = "Large (conservative)"
-    }
-
-    Write-Host "  Generating graph.pbtxt [$tierLabel]..." -ForegroundColor Yellow
+    Write-Host "  Generating graph.pbtxt [$PerformanceProfile]..." -ForegroundColor Yellow
     Write-Host "    device=$device  cache_size=$cacheSize  max_num_seqs=$maxSeqs" -ForegroundColor DarkGray
+    if ($PerformanceProfile -eq "Fast") {
+        Write-Host "  ⚠️  Fast profile may exceed VRAM on larger models; switch to Safe if OVMS fails to initialize." -ForegroundColor Yellow
+    }
 
     $GraphContent = @"
 input_stream: "HTTP_REQUEST_PAYLOAD:input"
