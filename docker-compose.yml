@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────
+#  Open WebUI — Local ChatGPT-like interface for OVMS
+#
+#  Start:   docker compose up -d
+#  Open:    http://localhost:3000
+#  Stop:    docker compose down
+#  Logs:    docker compose logs -f open-webui
+#
+#  Connects to your proxy at http://localhost:8001
+#  First visit: create a local account (stays on your machine)
+# ─────────────────────────────────────────────────────────────
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - PORT=3000
+      # ── Connect to your OVMS proxy ──────────────────────
+      # host.docker.internal = your Windows host from inside Docker
+      # Note: newer Open WebUI uses plural variable names (semicolon-separated)
+      - OPENAI_API_BASE_URLS=http://localhost:8001/v3
+      - OPENAI_API_KEYS=sk-dummy
+      - ENABLE_OPENAI_API=true
+
+      # ── Auth: skip login, go straight to chat ───────────
+      - WEBUI_AUTH=false
+      - WEBUI_SECRET_KEY=local-dev-key
+
+      # ── Disable features that need internet ─────────────
+      - ENABLE_SIGNUP=true
+      - ENABLE_COMMUNITY_SHARING=false
+      - SAFE_MODE=false
+
+      # ── Disable Ollama (we use OpenAI-compatible API) ───
+      - ENABLE_OLLAMA_API=false
+      - OLLAMA_BASE_URL=
+
+      # ── UI Customization ────────────────────────────────
+      - WEBUI_NAME=AI Interface
+      - DEFAULT_MODELS=qwen2.5-coder-7b
+
+    volumes:
+      - open-webui-data:/app/backend/data
+
+volumes:
+  open-webui-data:
+    name: open-webui-data
