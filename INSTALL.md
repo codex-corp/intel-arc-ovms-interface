@@ -1,7 +1,7 @@
 # Installation Guide — Intel Arc A750 OVMS Inference Server
 
 > **Native Windows 11 — No WSL, No Docker**
-> Last updated: 2026-02-13
+> Last updated: 2026-02-14
 
 ---
 
@@ -109,25 +109,34 @@ GPU: Intel(R) Arc(TM) A750 Graphics (dGPU)
 
 ## Step 4 — Download the Model
 
+Recommended helper (uses Python API download + graph generation):
+
+```powershell
+.\download_model.ps1 -Setup -PerformanceProfile Balanced
+```
+
+Or direct Python API command:
+
+```powershell
+& "g:\ai-interface\.venv\Scripts\python.exe" -c "from huggingface_hub import snapshot_download; snapshot_download('OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov', local_dir=r'g:\ai-hub\llama\models\qwen-int4-ov')"
+```
+
+Optional CLI fallback (if available on your machine):
+
 ```powershell
 & "g:\ai-interface\.venv\Scripts\huggingface-cli.exe" download `
   OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov `
   --local-dir "g:\ai-hub\llama\models\qwen-int4-ov"
 ```
 
-Or run the helper script:
-
-```powershell
-.\download_model.ps1
-```
-
-Or use the Python native command (if you have the venv):
-
-```powershell
-& "g:\ai-interface\.venv\Scripts\python.exe" -c "from huggingface_hub import snapshot_download; snapshot_download('OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov', local_dir=r'g:\ai-hub\llama\models\qwen-int4-ov')"
-```
-
 > ~5 GB download. The model folder should contain `openvino_model.xml`, `openvino_model.bin`, and tokenizer files.
+
+### Performance Profile Notes
+
+`download_model.ps1` supports:
+- `-PerformanceProfile Safe` (`cache_size=2`, `max_num_seqs=2`)
+- `-PerformanceProfile Balanced` (`cache_size=4`, `max_num_seqs=4`) **default**
+- `-PerformanceProfile Fast` (`cache_size=8`, `max_num_seqs=8`, may OOM on larger models)
 
 ---
 
@@ -205,11 +214,27 @@ node: {
 
 ## Step 7 — Start the Server
 
+### Option A — Standard (single model from `MODEL_NAME` / `MODEL_PATH`)
+
 ```powershell
 .\start_server.ps1
 ```
 
-Or manually (requires `setupvars.bat` to set DLL paths):
+### Option B — Dynamic (hot-swap friendly, recommended with `manage_models.ps1`)
+
+```powershell
+.\start_server_dynamic.ps1
+```
+
+In dynamic mode, OVMS reads `config.json` (`--config_path`) and can be controlled by:
+
+```powershell
+.\manage_models.ps1 status
+.\manage_models.ps1 switch Qwen3-4B
+.\manage_models.ps1 rollback
+```
+
+Manual standard command (requires `setupvars.bat` to set DLL paths):
 
 ```powershell
 cmd /c "cd /d g:\ai-interface\ovms\ovms && setupvars.bat && ovms.exe --model_name qwen2.5-coder-7b --model_path g:\ai-hub\llama\models\qwen-int4-ov --port 9000 --rest_port 8000"
@@ -290,6 +315,8 @@ Full troubleshooting guide: [oom_troubleshooting.md](oom_troubleshooting.md)
 | `setup_ovms.ps1` | Download/extract OVMS binary |
 | `config.json` | OVMS model server configuration |
 | `start_server.ps1` | Launch OVMS inference server |
+| `start_server_dynamic.ps1` | Launch OVMS in `--config_path` dynamic mode |
+| `manage_models.ps1` | Command-based model switching (`status/list/switch/rollback`) |
 | `gpu_checklist.md` | GPU verification checklist |
 | `oom_troubleshooting.md` | OOM/WDDM spill mitigation guide |
 
