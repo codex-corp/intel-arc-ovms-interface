@@ -1,30 +1,15 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Loads configuration variables from config.env
-.DESCRIPTION
-    Reads g:\ai-interface\config.env and sets key-value pairs as global variables.
-    Defaults are provided if the file is missing.
-#>
-
+# Backward-compatibility adapter. New code should read settings.json directly.
 $ScriptDir = $PSScriptRoot
-$ConfigFile = Join-Path $ScriptDir "config.env"
-
-if (Test-Path $ConfigFile) {
-    Get-Content $ConfigFile | Where-Object { $_ -match '=' -and -not $_.StartsWith('#') -and -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
-        $key, $value = $_ -split '=', 2
-        if ($key -and $value) {
-            Set-Variable -Name $key.Trim() -Value $value.Trim() -Scope Global
-        }
-    }
-    # Write-Host "  loaded config.env" -ForegroundColor DarkGray
-} else {
-    Write-Host "⚠️  config.env not found at $ConfigFile" -ForegroundColor Yellow
-}
-
-# --- Defaults / Fallbacks ---
-if (-not $MODEL_NAME -and $DEFAULT_MODEL_NAME) {
-    # Write-Host "  Using Default Model: $DEFAULT_MODEL_NAME" -ForegroundColor DarkGray
-    $MODEL_NAME = $DEFAULT_MODEL_NAME
-    Set-Variable -Name "MODEL_NAME" -Value $DEFAULT_MODEL_NAME -Scope Global
-}
+$SettingsPath = Join-Path $ScriptDir "settings.json"
+if (-not (Test-Path $SettingsPath)) { throw "settings.json not found at $SettingsPath" }
+$Settings = Get-Content $SettingsPath -Raw | ConvertFrom-Json
+Set-Variable -Name "AI_INTERFACE_DIR" -Value $ScriptDir -Scope Global
+Set-Variable -Name "AI_HUB_DIR" -Value ([System.IO.Path]::GetFullPath((Join-Path $ScriptDir $Settings.paths.model_repository))) -Scope Global
+Set-Variable -Name "VENV_DIR" -Value (Join-Path $ScriptDir ".venv") -Scope Global
+Set-Variable -Name "OVMS_DIR" -Value ([System.IO.Path]::GetFullPath((Join-Path $ScriptDir $Settings.paths.ovms_dir))) -Scope Global
+Set-Variable -Name "OVMS_PORT" -Value ([int]$Settings.server.rest_port) -Scope Global
+Set-Variable -Name "OVMS_GRPC_PORT" -Value ([int]$Settings.server.grpc_port) -Scope Global
+Set-Variable -Name "PROXY_PORT" -Value ([int]$Settings.proxy.port) -Scope Global
+Set-Variable -Name "PROXY_SCRIPT" -Value (Join-Path $ScriptDir "proxy_server.py") -Scope Global
+Set-Variable -Name "PYTHON_EXE" -Value (Join-Path $ScriptDir ".venv\\Scripts\\python.exe") -Scope Global
