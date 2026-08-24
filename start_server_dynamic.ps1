@@ -21,7 +21,11 @@ if ($VerboseOutput) { $LogLevel = "INFO" }
 
 $ConfigPath = Join-Path $ScriptDir "config.json"
 if (-not (Test-Path $ConfigPath)) {
-    throw "config.json not found at: $ConfigPath"
+    Write-Host "  config.json not found; initializing it from config.env..." -ForegroundColor Yellow
+    & "$ScriptDir\Initialize-DynamicConfig.ps1"
+}
+if (-not (Test-Path $ConfigPath)) {
+    throw "config.json could not be initialized at: $ConfigPath"
 }
 
 Write-Host "🚀 Launching OVMS (Dynamic Config Mode)..." -ForegroundColor Cyan
