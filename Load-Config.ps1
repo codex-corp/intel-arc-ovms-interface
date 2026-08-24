@@ -30,6 +30,6 @@ if (-not $MODEL_NAME -and $DEFAULT_MODEL_NAME) {
 }
 
 if (-not $OVMS_VERSION) {
-    $OVMS_VERSION = "2025.4"
+    $OVMS_VERSION = "2026.3"
     Set-Variable -Name "OVMS_VERSION" -Value $OVMS_VERSION -Scope Global
 }
