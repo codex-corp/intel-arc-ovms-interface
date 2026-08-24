@@ -74,7 +74,7 @@ if (-not $RepositoryPath) {
 function Quote-CmdArg {
     param([string]$Value)
     if ($null -eq $Value) { return '""' }
-    return '"' + $Value.Replace('"', '\"') + '"'
+    return '"' + $Value.Replace('"', '""') + '"'
 }
 
 function Invoke-OvmsCli {
@@ -88,11 +88,22 @@ function Invoke-OvmsCli {
     }
 }
 
+$script:OvmsHelp = $null
 function Test-OvmsOption {
     param([string]$Option)
-    $commandLine = "call `"$SetupVars`" >NUL 2>&1 && `"$OvmsExe`" --help"
-    $help = (& cmd.exe /d /s /c $commandLine 2>&1 | Out-String)
-    return $help -match [regex]::Escape($Option)
+    if ($null -eq $script:OvmsHelp) {
+        $commandLine = "call `"$SetupVars`" >NUL 2>&1 && `"$OvmsExe`" --help"
+        $script:OvmsHelp = (& cmd.exe /d /s /c $commandLine 2>&1 | Out-String)
+    }
+    return $script:OvmsHelp -match [regex]::Escape($Option)
+}
+
+function Assert-OvmsOption {
+    param([string]$Option, [string]$MinimumVersion = "")
+    if (-not (Test-OvmsOption $Option)) {
+        $hint = if ($MinimumVersion) { " Upgrade OVMS to $MinimumVersion or newer." } else { "" }
+        throw "Installed OVMS does not support $Option.$hint"
+    }
 }
 
 function Get-ProfileValues {
@@ -143,7 +154,12 @@ function Reload-OvmsConfig {
 
     $uri = "http://localhost:$OVMS_PORT/v1/config/reload"
     Write-Host "  Reloading OVMS config..." -ForegroundColor Yellow
-    $response = Invoke-WebRequest -Method Post -Uri $uri -UseBasicParsing -TimeoutSec 60
+    try {
+        $response = Invoke-WebRequest -Method Post -Uri $uri -UseBasicParsing -TimeoutSec 60
+    }
+    catch {
+        throw "OVMS config reload failed: $($_.Exception.Message)"
+    }
     if ($response.StatusCode -notin @(200, 201)) {
         throw "OVMS config reload failed with HTTP $($response.StatusCode)."
     }
@@ -152,10 +168,12 @@ function Reload-OvmsConfig {
 
 switch ($Command) {
     "list" {
+        Assert-OvmsOption "--list_models"
         Invoke-OvmsCli @("--list_models", "--model_repository_path", $RepositoryPath)
     }
 
     "pull" {
+        Assert-OvmsOption "--pull"
         $source = if ($SourceModel) { $SourceModel } else { $Model }
         if (-not $source) { throw "pull requires a Hugging Face source model." }
 
@@ -188,9 +206,7 @@ switch ($Command) {
     }
 
     "configure" {
-        if (-not (Test-OvmsOption "--configure")) {
-            throw "Installed OVMS does not support --configure. Upgrade OVMS to a 2026.x build."
-        }
+        Assert-OvmsOption "--configure" "2026.x"
         if (-not $ModelPath) { throw "configure requires -ModelPath." }
 
         $resolvedModelPath = Resolve-LocalPath $ModelPath
@@ -217,6 +233,7 @@ switch ($Command) {
     }
 
     "enable" {
+        Assert-OvmsOption "--add_to_config"
         $servableName = if ($Name) { $Name } else { $Model }
         if (-not $servableName) { throw "enable requires a model name." }
 
@@ -247,6 +264,7 @@ switch ($Command) {
     }
 
     "disable" {
+        Assert-OvmsOption "--remove_from_config"
         $servableName = if ($Name) { $Name } else { $Model }
         if (-not $servableName) { throw "disable requires a model name." }
 
