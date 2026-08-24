@@ -164,16 +164,9 @@ Write-Host ""
 
 # --- 6. Setup OVMS Binary ---
 Write-Host "Step 6: Setting up OVMS Binary..." -ForegroundColor White
+& "$ScriptDir\setup_ovms.ps1" -AutoDownload
 if (-not (Test-Path "$OVMS_DIR\ovms.exe")) {
-    Write-Host "  Downloading OVMS 2025.4..." -ForegroundColor Yellow
-    $zipPath = "$env:TEMP\ovms_windows.zip"
-    Invoke-WebRequest -Uri "https://github.com/openvinotoolkit/model_server/releases/download/v2025.4.1/ovms_windows_python_on.zip" -OutFile $zipPath -UseBasicParsing
-
-    # Extract to parent folder because zip contains 'ovms' folder
-    $ExtractDir = Split-Path -Path $OVMS_DIR -Parent
-    Write-Host "  Extracting to $ExtractDir..." -ForegroundColor Yellow
-    Expand-Archive -Path $zipPath -DestinationPath $ExtractDir -Force
-    Remove-Item $zipPath
+    throw "OVMS setup did not produce ovms.exe at $OVMS_DIR"
 }
 Write-Host "  ✅ OVMS binary ready" -ForegroundColor Green
 Write-Host ""
@@ -182,7 +175,11 @@ Write-Host ""
 Write-Host "Step 7: Generating Configuration Files..." -ForegroundColor White
 
 # 7a. graph.pbtxt
-$GraphContent = @'
+# download_model.ps1 already generates the graph using the selected performance profile.
+# Preserve it when present so install_all.ps1 does not silently reset the user's profile.
+$GraphPath = "$MODEL_PATH\graph.pbtxt"
+if (-not (Test-Path $GraphPath)) {
+    $GraphContent = @'
 input_stream: "HTTP_REQUEST_PAYLOAD:input"
 output_stream: "HTTP_RESPONSE_PAYLOAD:output"
 node: {
@@ -210,8 +207,11 @@ node: {
   }
 }
 '@
-Set-Content -Path "$MODEL_PATH\graph.pbtxt" -Value $GraphContent
-Write-Host "  ✅ Created graph.pbtxt" -ForegroundColor Green
+    Set-Content -Path $GraphPath -Value $GraphContent
+    Write-Host "  ✅ Created graph.pbtxt" -ForegroundColor Green
+} else {
+    Write-Host "  ✅ Keeping existing graph.pbtxt (performance profile preserved)" -ForegroundColor Green
+}
 
 
 # Note: proxy_server.py is a standalone file (reads config.env at runtime).
