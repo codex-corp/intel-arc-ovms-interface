@@ -8,7 +8,8 @@
 #>
 
 param(
-    [switch]$AutoDownload
+    [switch]$AutoDownload,
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +21,7 @@ $OvmsDir = $OVMS_DIR
 $CacheDir = "$AI_INTERFACE_DIR\cache"
 $OvmsVersion = $OVMS_VERSION
 $GithubReleasesUrl = "https://github.com/openvinotoolkit/model_server/releases"
+$OvmsExe = Join-Path $OvmsDir "ovms.exe"
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
@@ -38,35 +40,41 @@ if (-not (Test-Path $CacheDir)) {
     Write-Host "  📁 Created: $CacheDir" -ForegroundColor Green
 }
 
-# Check if ovms.exe already exists
-if (Test-Path "$OvmsDir\ovms.exe") {
+$needsDownload = -not (Test-Path $OvmsExe)
+if ((Test-Path $OvmsExe) -and -not $Force) {
     Write-Host "  ✅ ovms.exe already exists at $OvmsDir" -ForegroundColor Green
     Write-Host ""
 
     # Try version check
     try {
-        $ver = & "$OvmsDir\ovms.exe" --version 2>&1
+        $ver = & $OvmsExe --version 2>&1
         Write-Host "  Version: $ver" -ForegroundColor DarkGray
+        Write-Host "  Use -Force to replace the installed runtime with configured version $OvmsVersion." -ForegroundColor DarkGray
     } catch {
         Write-Host "  ⚠️  Could not get version — binary may still be valid" -ForegroundColor Yellow
     }
-} else {
+} elseif ($Force -and (Test-Path $OvmsExe)) {
+    Write-Host "  Force upgrade requested. Installed OVMS will be replaced with v$OvmsVersion." -ForegroundColor Yellow
+    $needsDownload = $true
+}
+
+if ($needsDownload) {
     Write-Host ""
-    Write-Host "  ⚠️  ovms.exe not found at $OvmsDir" -ForegroundColor Yellow
+    if (-not (Test-Path $OvmsExe)) {
+        Write-Host "  ⚠️  ovms.exe not found at $OvmsDir" -ForegroundColor Yellow
+    }
     Write-Host ""
-    Write-Host "  MANUAL DOWNLOAD REQUIRED:" -ForegroundColor White
+    Write-Host "  MANUAL DOWNLOAD:" -ForegroundColor White
     Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host "  1. Go to: $GithubReleasesUrl" -ForegroundColor Yellow
     Write-Host "  2. Find release matching: v$OvmsVersion (or compatible patch release)" -ForegroundColor Yellow
     Write-Host "  3. Expand 'Assets' and download the Windows ZIP" -ForegroundColor Yellow
-    Write-Host "     Look for: ovms_windows*.zip" -ForegroundColor Yellow
+    Write-Host "     Prefer: ovms_windows_*_python_on.zip" -ForegroundColor Yellow
     Write-Host "  4. Extract contents to: $OvmsDir" -ForegroundColor Yellow
     Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  After extracting, re-run this script to verify." -ForegroundColor White
 
     # Attempt automated download (may fail if release naming changes)
-    Write-Host ""
     $attemptDownload = $AutoDownload
     if (-not $AutoDownload) {
         $attemptDownload = (Read-Host "  Attempt automatic download? (y/n)") -eq 'y'
@@ -82,14 +90,22 @@ if (Test-Path "$OvmsDir\ovms.exe") {
                 throw "No release matching v$OvmsVersion was found."
             }
 
-            $winAsset = $release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "\.zip$" } | Select-Object -First 1
+            $windowsAssets = @($release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "\.zip$" })
+            $winAsset = $windowsAssets | Where-Object { $_.name -match "python_on" } | Select-Object -First 1
+            if (-not $winAsset) {
+                $winAsset = $windowsAssets | Select-Object -First 1
+            }
 
             if ($winAsset) {
                 $zipPath = Join-Path $env:TEMP $winAsset.name
                 Write-Host "  Downloading: $($winAsset.name) ($([math]::Round($winAsset.size/1MB, 1)) MB)..." -ForegroundColor Yellow
                 Invoke-WebRequest -Uri $winAsset.browser_download_url -OutFile $zipPath -UseBasicParsing
 
-                # Extract to parent folder because zip contains 'ovms' folder
+                # Avoid mixing old and new runtime files during an explicit upgrade.
+                if ($Force -and (Test-Path $OvmsDir)) {
+                    Remove-Item -Path $OvmsDir -Recurse -Force
+                }
+
                 $ExtractDir = Split-Path -Path $OvmsDir -Parent
                 Write-Host "  Extracting to $ExtractDir..." -ForegroundColor Yellow
                 Expand-Archive -Path $zipPath -DestinationPath $ExtractDir -Force
@@ -108,8 +124,8 @@ if (Test-Path "$OvmsDir\ovms.exe") {
 Write-Host ""
 
 # Final verification
-if (Test-Path "$OvmsDir\ovms.exe") {
-    Write-Host "  ✅ OVMS binary ready at: $OvmsDir\ovms.exe" -ForegroundColor Green
+if (Test-Path $OvmsExe) {
+    Write-Host "  ✅ OVMS binary ready at: $OvmsExe" -ForegroundColor Green
     Write-Host "  ✅ Cache directory ready at: $CacheDir" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Next: Run start_server.ps1 to launch the inference server." -ForegroundColor Cyan
