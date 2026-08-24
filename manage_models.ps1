@@ -28,6 +28,9 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 . "$ScriptDir\Load-Config.ps1"
 
+# Ensure dynamic config and model registry exist before invoking the Python manager.
+& "$ScriptDir\Initialize-DynamicConfig.ps1"
+
 $ManagerScript = Join-Path $ScriptDir "tools\model_manager\manage_models.py"
 $argsList = @($ManagerScript, "--root", $ScriptDir, $Command)
 
