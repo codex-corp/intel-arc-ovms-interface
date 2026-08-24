@@ -13,7 +13,7 @@ def load_config():
     config = {}
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.env')
     if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:
@@ -21,38 +21,36 @@ def load_config():
                     config[key.strip()] = value.strip()
     return config
 
+
+def _config_bool(config, key, default=False):
+    value = config.get(key)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 _cfg = load_config()
 TARGET_URL = f"http://localhost:{_cfg.get('OVMS_PORT', '8000')}"
+HOST = _cfg.get('PROXY_HOST', '127.0.0.1')
 PORT = int(_cfg.get('PROXY_PORT', '8001'))
+LOG_PROMPTS = _config_bool(_cfg, 'PROXY_LOG_PROMPTS', False)
+STRIP_REASONING = _config_bool(_cfg, 'PROXY_STRIP_REASONING', False)
+INJECT_STREAM_ID = _config_bool(_cfg, 'PROXY_INJECT_STREAM_ID', True)
 
 # ── Telemetry ──────────────────────────────────────────────
 _base_dir = os.path.dirname(os.path.abspath(__file__))
 _xpu_smi = os.path.join(_base_dir, "xpu-smi", "xpu-smi.exe")
 _has_xpu = os.path.exists(_xpu_smi)
 
-_token_count = 0
-_token_start = None
-_last_tps = 0.0
+_last_rate = 0.0
+_last_rate_unit = "idle"
+_last_ttft = None
 _request_count = 0
 _completion_id = 0
 _total_tokens = 0
+_active_generations = 0
 _boot_time = time.time()
 
-def record_token():
-    global _token_count, _token_start, _last_tps
-    if _token_start is None:
-        _token_start = time.time()
-        _token_count = 0
-    _token_count += 1
-    elapsed = time.time() - _token_start
-    if elapsed > 0:
-        _last_tps = _token_count / elapsed
-
-def reset_tokens():
-    global _token_count, _token_start, _last_tps
-    _token_start = time.time()
-    _token_count = 0
-    _last_tps = 0.0
 
 def get_gpu_metrics():
     if not _has_xpu:
@@ -75,15 +73,18 @@ def get_gpu_metrics():
                         }
                     except ValueError:
                         continue
-    except:
+    except Exception:
         pass
     return None
+
 
 def _update_header():
     """Update the fixed top bar (lines 1-3) without disturbing the log scroll area."""
     uptime = int(time.time() - _boot_time)
     h, m = divmod(uptime // 60, 60)
     up_str = f"{h}h{m:02d}m" if h else f"{m}m"
+    rate = f"{_last_rate:5.1f} {_last_rate_unit}" if _last_rate_unit != "idle" else "idle"
+    ttft = f"{_last_ttft:.2f}s" if _last_ttft is not None else "-"
 
     hw = get_gpu_metrics()
     if hw:
@@ -91,15 +92,16 @@ def _update_header():
             f" GPU {hw['gpu']:3.0f}%  │"
             f"  Power {hw['power']:5.1f}W  │"
             f"  VRAM {hw['vram']:5.0f} MiB  │"
-            f"  Compute {hw['compute']:3.0f}%  │"
-            f"  TPS {_last_tps:5.1f}  │"
-            f"  Reqs {_request_count}  │"
+            f"  Rate {rate}  │"
+            f"  Active {_active_generations}  │"
             f"  ↑{up_str}"
         )
     else:
         status = (
-            f" TPS {_last_tps:5.1f}  │"
+            f" Rate {rate}  │"
+            f"  TTFT {ttft}  │"
             f"  Reqs {_request_count}  │"
+            f"  Active {_active_generations}  │"
             f"  Total {_total_tokens} tok  │"
             f"  ↑{up_str}"
         )
@@ -109,18 +111,20 @@ def _update_header():
     sys.stdout.write(f"\033[s\033[2;1H\033[36m{status}\033[0m\033[u")
     sys.stdout.flush()
 
+
 async def telemetry_loop():
     """Background task: updates the fixed top status bar every 2 seconds."""
     await asyncio.sleep(2)
     while True:
         try:
             _update_header()
-        except:
+        except Exception:
             pass
         await asyncio.sleep(2)
 
 # ── Shared HTTP Session ────────────────────────────────────
 _session = None
+
 
 async def get_session():
     global _session
@@ -129,13 +133,13 @@ async def get_session():
         _session = aiohttp.ClientSession(timeout=timeout)
     return _session
 
+
 async def cleanup_session(app):
     if _session and not _session.closed:
         await _session.close()
 
 # ── Proxy Handler ──────────────────────────────────────────
 _last_model_check = 0
-_generating = False  # True while streaming tokens
 
 # ANSI helpers
 C_DIM    = "\033[90m"
@@ -145,6 +149,7 @@ C_YELLOW = "\033[33m"
 C_RED    = "\033[31m"
 C_BOLD   = "\033[1m"
 C_RESET  = "\033[0m"
+
 
 def _detect_client(headers):
     """Identify the calling IDE/tool from User-Agent."""
@@ -167,6 +172,7 @@ def _detect_client(headers):
     elif "curl" in ua:
         return "curl"
     return None
+
 
 def _extract_prompt_preview(body_bytes):
     """Get a short preview of what the user is asking."""
@@ -195,19 +201,59 @@ def _extract_prompt_preview(body_bytes):
             if len(prompt) > 60:
                 return prompt[:57] + "..."
             return prompt
-    except:
+    except Exception:
         pass
     return None
 
-def _progress_line(tokens, elapsed):
-    """Build an in-place progress update line."""
-    tps = tokens / elapsed if elapsed > 0 else 0
-    bar_len = min(tokens // 3, 20)  # ~3 tokens per block, max 20
+
+def _adapt_openai_payload(data, request_id=None):
+    """Apply only explicitly enabled compatibility shims; passthrough is the default."""
+    if request_id and INJECT_STREAM_ID and 'id' not in data:
+        data['id'] = request_id
+
+    if STRIP_REASONING:
+        for choice in data.get('choices', []):
+            delta = choice.get('delta')
+            if isinstance(delta, dict):
+                delta.pop('reasoning_content', None)
+            message = choice.get('message')
+            if isinstance(message, dict):
+                message.pop('reasoning_content', None)
+    return data
+
+
+def _completion_tokens_from_usage(data):
+    usage = data.get('usage')
+    if not isinstance(usage, dict):
+        return None
+    value = usage.get('completion_tokens')
+    return value if isinstance(value, int) and value >= 0 else None
+
+
+def _has_meaningful_delta(data):
+    for choice in data.get('choices', []):
+        delta = choice.get('delta')
+        if not isinstance(delta, dict):
+            continue
+        for key in ('content', 'reasoning_content', 'tool_calls'):
+            value = delta.get(key)
+            if value not in (None, '', [], {}):
+                return True
+    return False
+
+
+def _progress_line(chunks, elapsed):
+    """Build an in-place progress update using stream chunks, not guessed token counts."""
+    rate = chunks / elapsed if elapsed > 0 else 0
+    bar_len = min(chunks // 3, 20)
     bar = "█" * bar_len + "░" * (20 - bar_len)
-    return f"  {C_DIM}       {bar}  {tokens} tokens  ({elapsed:.1f}s, {tps:.1f} tok/s){C_RESET}"
+    return f"  {C_DIM}       {bar}  {chunks} chunks  ({elapsed:.1f}s, {rate:.1f} chunks/s){C_RESET}"
+
 
 async def handle_proxy(request):
-    global _request_count, _last_model_check, _generating, _completion_id, _total_tokens
+    global _request_count, _last_model_check, _completion_id, _total_tokens
+    global _last_rate, _last_rate_unit, _last_ttft, _active_generations
+
     target_path = request.path
     if request.query_string:
         target_path += "?" + request.query_string
@@ -217,8 +263,6 @@ async def handle_proxy(request):
 
     is_completion = "completions" in target_path
     is_chat = "chat/completions" in target_path
-    if is_completion:
-        reset_tokens()
 
     # Extract context for logging
     req_model = None
@@ -228,12 +272,17 @@ async def handle_proxy(request):
         try:
             req_json = json.loads(body)
             req_model = req_json.get("model", "?")
-        except: pass
-        prompt_preview = _extract_prompt_preview(body)
+        except Exception:
+            pass
+        if LOG_PROMPTS:
+            prompt_preview = _extract_prompt_preview(body)
 
     _request_count += 1
     req_start = time.time()
     this_id = None
+    stream_chunks = 0
+    completion_tokens = None
+    first_output_at = None
 
     # Log arrival for completions
     if is_completion:
@@ -248,7 +297,7 @@ async def handle_proxy(request):
         log(f"   Model: {model_str}")
         if prompt_preview:
             log(f"   {C_DIM}\"{prompt_preview}\"{C_RESET}")
-        _generating = True
+        _active_generations += 1
 
     session = await get_session()
     try:
@@ -273,59 +322,95 @@ async def handle_proxy(request):
                             try:
                                 if line.startswith('data: ') and line != 'data: [DONE]':
                                     data = json.loads(line[6:])
-                                    if 'id' not in data: data['id'] = request_id
-                                    # Strip unsupported fields
-                                    for ch in data.get('choices', []):
-                                        ch.get('delta', {}).pop('reasoning_content', None)
-                                    # Each SSE event must end with a blank line for strict clients.
+                                    data = _adapt_openai_payload(data, request_id=request_id)
+
+                                    usage_tokens = _completion_tokens_from_usage(data)
+                                    if usage_tokens is not None:
+                                        completion_tokens = usage_tokens
+                                    if first_output_at is None and _has_meaningful_delta(data):
+                                        first_output_at = time.time()
+
+                                    # Keep current strict-client framing behavior.
                                     await client_response.write(f"data: {json.dumps(data)}\n\n".encode('utf-8'))
                                     if is_completion:
-                                        record_token()
-                                        # Update progress every 10 tokens
-                                        if _token_count - last_progress >= 10:
+                                        stream_chunks += 1
+                                        # Progress is intentionally chunk-based unless real usage is available.
+                                        if stream_chunks - last_progress >= 10:
                                             elapsed = time.time() - req_start
-                                            sys.stdout.write(f"\r{_progress_line(_token_count, elapsed)}")
+                                            sys.stdout.write(f"\r{_progress_line(stream_chunks, elapsed)}")
                                             sys.stdout.flush()
-                                            last_progress = _token_count
+                                            last_progress = stream_chunks
                                 else:
                                     await client_response.write((line + '\n').encode('utf-8'))
-                            except:
+                            except Exception:
                                 await client_response.write((line + '\n').encode('utf-8'))
                 if buffer.strip():
                     await client_response.write(buffer.encode('utf-8'))
+            elif is_completion:
+                response_body = await response.read()
+                try:
+                    if 'application/json' in response.headers.get('Content-Type', ''):
+                        data = json.loads(response_body)
+                        data = _adapt_openai_payload(data)
+                        completion_tokens = _completion_tokens_from_usage(data)
+                        response_body = json.dumps(data).encode('utf-8')
+                except Exception:
+                    pass
+                await client_response.write(response_body)
             else:
                 async for chunk in response.content:
                     await client_response.write(chunk)
 
             # Final logging
-            elapsed = time.time() - req_start
+            end_time = time.time()
+            elapsed = end_time - req_start
             if is_completion:
                 # Clear progress line and print final summary
                 sys.stdout.write(f"\r{' ' * 80}\r")
                 sys.stdout.flush()
-                tps = _token_count / elapsed if elapsed > 0 else 0
-                _total_tokens += _token_count
+                ttft = (first_output_at - req_start) if first_output_at is not None else None
+                if completion_tokens is not None:
+                    rate_elapsed = max((end_time - first_output_at) if first_output_at is not None else elapsed, 0.001)
+                    rate = completion_tokens / rate_elapsed
+                    _total_tokens += completion_tokens
+                    _last_rate = rate
+                    _last_rate_unit = "tok/s"
+                    count_text = f"{C_BOLD}{completion_tokens}{C_RESET} tokens"
+                elif stream_chunks:
+                    rate = stream_chunks / max(elapsed, 0.001)
+                    _last_rate = rate
+                    _last_rate_unit = "chunks/s"
+                    count_text = f"{C_BOLD}{stream_chunks}{C_RESET} stream chunks"
+                else:
+                    rate = 0.0
+                    _last_rate = 0.0
+                    _last_rate_unit = "idle"
+                    count_text = "completed"
+
+                _last_ttft = ttft
+                ttft_text = f"  │  TTFT {ttft:.2f}s" if ttft is not None else ""
+                rate_text = f"  │  {C_CYAN}{rate:.1f} {_last_rate_unit}{C_RESET}" if rate > 0 else ""
                 tag = f"{C_DIM}#{this_id}{C_RESET}" if this_id else ""
-                log(f"{C_GREEN}✓{C_RESET}  {tag}  {C_BOLD}{_token_count}{C_RESET} tokens  │  {elapsed:.1f}s  │  {C_CYAN}{tps:.1f} tok/s{C_RESET}")
-                _generating = False
+                log(f"{C_GREEN}✓{C_RESET}  {tag}  {count_text}  │  {elapsed:.1f}s{ttft_text}{rate_text}")
             else:
                 _log_non_completion(target_path, response.status, elapsed)
 
             return client_response
     except asyncio.TimeoutError:
-        _generating = False
         sys.stdout.write(f"\r{' ' * 80}\r")
         log(f"{C_YELLOW}⚠  Timeout{C_RESET} - server did not respond within 300s")
         return web.Response(text="Proxy Error: Upstream request timed out (300s)", status=504)
     except aiohttp.ClientConnectorError:
-        _generating = False
         log(f"{C_RED}✗  Connection failed{C_RESET} - cannot reach {TARGET_URL}")
         log(f"   {C_DIM}Is OVMS running? Try: .\\start_server.ps1{C_RESET}")
         return web.Response(text=f"Proxy Error: Cannot connect to {TARGET_URL}", status=502)
     except Exception as e:
-        _generating = False
         log(f"{C_RED}✗  Error:{C_RESET} {e}")
         return web.Response(text=f"Proxy Error: {str(e)}", status=500)
+    finally:
+        if is_completion:
+            _active_generations = max(0, _active_generations - 1)
+
 
 def _log_non_completion(path, status, elapsed):
     global _last_model_check
@@ -339,6 +424,7 @@ def _log_non_completion(path, status, elapsed):
     elif status >= 400:
         log(f"{C_YELLOW}⚠  {path} → {status}{C_RESET} ({elapsed:.1f}s)")
 
+
 def log(msg):
     ts = time.strftime("%H:%M:%S")
     print(f"  {C_DIM}{ts}{C_RESET}  {msg}", flush=True)
@@ -348,20 +434,25 @@ app = web.Application()
 app.on_cleanup.append(cleanup_session)
 app.router.add_route('*', '/{path_info:.*}', handle_proxy)
 
+
 async def start_telemetry(app):
     app['telemetry_task'] = asyncio.create_task(telemetry_loop())
 
+
 async def stop_telemetry(app):
     app['telemetry_task'].cancel()
-    try: await app['telemetry_task']
-    except asyncio.CancelledError: pass
+    try:
+        await app['telemetry_task']
+    except asyncio.CancelledError:
+        pass
+
 
 app.on_startup.append(start_telemetry)
 app.on_cleanup.append(stop_telemetry)
 
 if __name__ == '__main__':
     # Set up fixed top bar (3 lines) + scrolling log region below
-    title = f" Proxy :{PORT} -> {TARGET_URL}"
+    title = f" Proxy {HOST}:{PORT} -> {TARGET_URL}"
     if _has_xpu:
         title += "  │  xpu-smi: ✓"
     else:
@@ -379,4 +470,4 @@ if __name__ == '__main__':
     sys.stdout.flush()
 
     print("  Ready. Waiting for requests...\n", flush=True)
-    web.run_app(app, port=PORT, access_log=None, print=lambda *a: None)
+    web.run_app(app, host=HOST, port=PORT, access_log=None, print=lambda *a: None)
