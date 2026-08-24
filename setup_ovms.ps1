@@ -3,7 +3,7 @@
 .SYNOPSIS
     Downloads and sets up OVMS Windows native binary
 .DESCRIPTION
-    Downloads the OVMS 2025.4 Windows native ZIP from GitHub releases,
+    Downloads the configured OVMS Windows native ZIP from GitHub releases,
     extracts it, and verifies the binary is functional.
 #>
 
@@ -14,16 +14,14 @@ $ErrorActionPreference = "Stop"
 
 $OvmsDir = $OVMS_DIR
 $CacheDir = "$AI_INTERFACE_DIR\cache"
-
-# OVMS release URL — update version as needed
-# Check https://github.com/openvinotoolkit/model_server/releases for latest
-$OvmsVersion = "2025.4"
+$OvmsVersion = $OVMS_VERSION
 $GithubReleasesUrl = "https://github.com/openvinotoolkit/model_server/releases"
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host "  OVMS Windows Native Setup" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  Target version: $OvmsVersion" -ForegroundColor DarkGray
 Write-Host ""
 
 # Create directories
@@ -55,7 +53,7 @@ if (Test-Path "$OvmsDir\ovms.exe") {
     Write-Host "  MANUAL DOWNLOAD REQUIRED:" -ForegroundColor White
     Write-Host "  ─────────────────────────────────────────────────────" -ForegroundColor DarkGray
     Write-Host "  1. Go to: $GithubReleasesUrl" -ForegroundColor Yellow
-    Write-Host "  2. Find release: v2025.4 (or latest)" -ForegroundColor Yellow
+    Write-Host "  2. Find release matching: v$OvmsVersion (or compatible patch release)" -ForegroundColor Yellow
     Write-Host "  3. Expand 'Assets' and download the Windows ZIP" -ForegroundColor Yellow
     Write-Host "     Look for: ovms_windows*.zip" -ForegroundColor Yellow
     Write-Host "  4. Extract contents to: $OvmsDir" -ForegroundColor Yellow
@@ -63,15 +61,18 @@ if (Test-Path "$OvmsDir\ovms.exe") {
     Write-Host ""
     Write-Host "  After extracting, re-run this script to verify." -ForegroundColor White
 
-    # Attempt automated download (may fail if URL pattern changes)
+    # Attempt automated download (may fail if release naming changes)
     Write-Host ""
     $autoDownload = Read-Host "  Attempt automatic download? (y/n)"
     if ($autoDownload -eq 'y') {
-        Write-Host "  Checking GitHub releases..." -ForegroundColor Yellow
+        Write-Host "  Checking GitHub releases for v$OvmsVersion..." -ForegroundColor Yellow
         try {
-            # Get latest release info
-            $releaseApi = "https://api.github.com/repos/openvinotoolkit/model_server/releases/latest"
-            $release = Invoke-RestMethod -Uri $releaseApi -Headers @{"Accept"="application/vnd.github.v3+json"}
+            $releaseApi = "https://api.github.com/repos/openvinotoolkit/model_server/releases?per_page=20"
+            $releases = Invoke-RestMethod -Uri $releaseApi -Headers @{"Accept"="application/vnd.github.v3+json"}
+            $release = $releases | Where-Object { $_.tag_name -like "v$OvmsVersion*" } | Select-Object -First 1
+            if (-not $release) {
+                throw "No release matching v$OvmsVersion was found."
+            }
 
             $winAsset = $release.assets | Where-Object { $_.name -match "windows" -and $_.name -match "\.zip$" } | Select-Object -First 1
 
@@ -87,7 +88,7 @@ if (Test-Path "$OvmsDir\ovms.exe") {
                 Remove-Item $zipPath -Force
                 Write-Host "  ✅ OVMS downloaded and extracted!" -ForegroundColor Green
             } else {
-                Write-Host "  ❌ No Windows ZIP found in latest release. Download manually." -ForegroundColor Red
+                Write-Host "  ❌ No Windows ZIP found in release $($release.tag_name). Download manually." -ForegroundColor Red
             }
         } catch {
             Write-Host "  ❌ Auto-download failed: $($_.Exception.Message)" -ForegroundColor Red
