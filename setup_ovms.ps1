@@ -7,6 +7,10 @@
     extracts it, and verifies the binary is functional.
 #>
 
+param(
+    [switch]$AutoDownload
+)
+
 $ErrorActionPreference = "Stop"
 
 # --- Load Configuration ---
@@ -63,8 +67,12 @@ if (Test-Path "$OvmsDir\ovms.exe") {
 
     # Attempt automated download (may fail if release naming changes)
     Write-Host ""
-    $autoDownload = Read-Host "  Attempt automatic download? (y/n)"
-    if ($autoDownload -eq 'y') {
+    $attemptDownload = $AutoDownload
+    if (-not $AutoDownload) {
+        $attemptDownload = (Read-Host "  Attempt automatic download? (y/n)") -eq 'y'
+    }
+
+    if ($attemptDownload) {
         Write-Host "  Checking GitHub releases for v$OvmsVersion..." -ForegroundColor Yellow
         try {
             $releaseApi = "https://api.github.com/repos/openvinotoolkit/model_server/releases?per_page=20"
