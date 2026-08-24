@@ -5,12 +5,14 @@ $ScriptDir = $PSScriptRoot
 $ErrorActionPreference = "Stop"
 $MaxRetries = 60
 $RetryCount = 0
+$ReadinessScript = Join-Path $ScriptDir "Test-OvmsReady.ps1"
 
 Write-Host "⏳ Waiting for OVMS ($OVMS_PORT)..." -ForegroundColor Yellow
 
 do {
-    if (Test-NetConnection -ComputerName localhost -Port $OVMS_PORT -InformationLevel Quiet -ErrorAction SilentlyContinue -WarningAction SilentlyContinue) {
-        Write-Host "✅ OVMS is UP!" -ForegroundColor Green
+    & $ReadinessScript -Port $OVMS_PORT -ModelName $MODEL_NAME -Quiet
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ OVMS is UP and model '$MODEL_NAME' is ready!" -ForegroundColor Green
 
         # If proxy port is in use, only stop known proxy processes.
         $existing = Get-NetTCPConnection -LocalPort $PROXY_PORT -ErrorAction SilentlyContinue
@@ -52,5 +54,5 @@ do {
 } while ($RetryCount -lt $MaxRetries)
 
 Write-Host ""
-Write-Host "❌ OVMS did not start within 180 seconds. Run .\start_server.ps1 first." -ForegroundColor Red
+Write-Host "❌ OVMS model '$MODEL_NAME' did not become ready within 180 seconds. Check OVMS logs or run .\start_server.ps1 first." -ForegroundColor Red
 exit 1
