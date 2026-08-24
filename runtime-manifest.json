@@ -1,0 +1,9 @@
+{
+  "ovms": {
+    "version": "2026.2",
+    "release_tag": "v2026.2",
+    "windows_asset_pattern": "ovms_windows.*\\.zip$"
+  },
+  "python": "3.11",
+  "minimum_driver_build": 6078
+}

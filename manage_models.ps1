@@ -1,47 +1,30 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Command-based local model control (status/list/switch/rollback).
-.EXAMPLE
-    .\manage_models.ps1 status
-    .\manage_models.ps1 list
-    .\manage_models.ps1 switch Qwen3-4B
-    .\manage_models.ps1 switch custom-model --path "g:\ai-hub\llama\models\custom-int4-ov"
-    .\manage_models.ps1 rollback
-#>
-
 param(
-    [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("status", "list", "switch", "rollback")]
+    [Parameter(Position=0, Mandatory=$true)]
+    [ValidateSet("status","list","switch","rollback","pull","configure","enable","disable")]
     [string]$Command,
-
-    [Parameter(Position = 1)]
-    [string]$Model,
-
+    [Parameter(Position=1)][string]$Model,
     [string]$Path,
+    [string]$Name,
+    [string]$Task = "text_generation",
+    [string]$Device = "GPU",
+    [int]$CacheSize = 2,
+    [int]$MaxNumSeqs = 2,
     [int]$Timeout = 180,
     [switch]$NoWait,
     [switch]$DryRun
 )
-
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
-. "$ScriptDir\Load-Config.ps1"
-
-$ManagerScript = Join-Path $ScriptDir "tools\model_manager\manage_models.py"
-$argsList = @($ManagerScript, "--root", $ScriptDir, $Command)
-
-if ($Command -eq "switch") {
-    if (-not $Model) {
-        throw "switch command requires a model argument."
-    }
-    $argsList += $Model
-    if ($Path) { $argsList += @("--path", $Path) }
-    if ($Timeout) { $argsList += @("--timeout", "$Timeout") }
-    if ($NoWait) { $argsList += "--no-wait" }
-    if ($DryRun) { $argsList += "--dry-run" }
+$Python = Join-Path $ScriptDir ".venv\\Scripts\\python.exe"
+if (-not (Test-Path $Python)) { throw "Python venv missing. Run .\\install_all.ps1 first." }
+$argsList = @((Join-Path $ScriptDir "tools\\model_manager\\manage_models.py"), "--root", $ScriptDir, $Command)
+switch ($Command) {
+  "switch" { if (-not $Model) { throw "switch requires a model" }; $argsList += $Model; if ($Path) {$argsList += @("--path",$Path)}; $argsList += @("--timeout","$Timeout"); if($NoWait){$argsList += "--no-wait"}; if($DryRun){$argsList += "--dry-run"} }
+  "pull" { if (-not $Model) { throw "pull requires a Hugging Face source" }; $argsList += @($Model,"--task",$Task,"--device",$Device,"--cache-size","$CacheSize","--max-num-seqs","$MaxNumSeqs"); if($Name){$argsList += @("--name",$Name)} }
+  "configure" { if (-not $Path) { throw "configure requires -Path" }; $argsList += @($Path,"--task",$Task,"--device",$Device,"--cache-size","$CacheSize","--max-num-seqs","$MaxNumSeqs"); if($Name){$argsList += @("--name",$Name)} }
+  "enable" { if (-not $Model) { throw "enable requires a model" }; $argsList += $Model; if($Path){$argsList += @("--path",$Path)} }
+  "disable" { if (-not $Model) { throw "disable requires a model" }; $argsList += $Model }
 }
-
-& $PYTHON_EXE @argsList
+& $Python @argsList
 exit $LASTEXITCODE
-

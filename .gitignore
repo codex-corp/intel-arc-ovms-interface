@@ -1,19 +1,13 @@
-# Virtual Environment
 .venv/
 __pycache__/
 *.pyc
-
-# Configuration (Local)
+settings.local.json
 config.env
-
-# OVMS Binary & Cache
 ovms/
 cache/
 xpu-smi/
-
-# Generated Launch Scripts (Created by install_all.ps1)
-start_server.ps1
-
-# Logs
+models/
+artifacts/*.log
+artifacts/*.lock
+config.json.bak
 *.log
-

@@ -1,87 +1,24 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Runs the OpenVINO Model Server for IDE/Agent integration
-.DESCRIPTION
-    Launches OVMS with Qwen2.5-Coder-7B on Intel Arc A750.
-    Displays configuration details needed for PhpStorm, VS Code, etc.
-#>
-
 param([switch]$VerboseOutput, [switch]$Proxy, [switch]$ShowProxy)
-
 $ErrorActionPreference = "Stop"
-
-# -ShowProxy implies -Proxy
-if ($ShowProxy) { $Proxy = $true }
-
-# --- Load Configuration ---
-. "$PSScriptRoot\Load-Config.ps1"
-
-# Configuration Mappings (for script compatibility)
-$Port = $OVMS_PORT
-$ModelName = $MODEL_NAME
-$BaseUrl = "http://localhost:$Port/v3"
-
-# Check if port is already in use
-if (Test-NetConnection -ComputerName localhost -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue -WarningAction SilentlyContinue) {
-    Write-Host ""
-    Write-Host "✅ Server is already running on port $Port" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "IDE Configuration Details:" -ForegroundColor Cyan
-    Write-Host "--------------------------" -ForegroundColor Gray
-    Write-Host "Base URL:   $BaseUrl" -ForegroundColor White
-    Write-Host "API Key:    sk-dummy" -ForegroundColor White
-    Write-Host "Model Name: $ModelName" -ForegroundColor White
-    Write-Host ""
-
-    # Still launch proxy if requested (even when OVMS is already running)
-    if ($Proxy) {
-        $ProxyPort = $PROXY_PORT
-        $ProxyRunning = Test-NetConnection -ComputerName localhost -Port $ProxyPort -InformationLevel Quiet -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-        if ($ProxyRunning) {
-            Write-Host "✅ Proxy is already running on port $ProxyPort" -ForegroundColor Green
-        }
-        else {
-            if ($ShowProxy) {
-                Write-Host "🚀 Starting Proxy (new window)..." -ForegroundColor Cyan
-                Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Normal
-            }
-            else {
-                Write-Host "🚀 Starting Proxy (minimized)..." -ForegroundColor Cyan
-                Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Hidden
-            }
-        }
-    }
-
-    Write-Host "Press any key to exit..." -ForegroundColor DarkGray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    exit 0
+$ScriptDir = $PSScriptRoot
+$Settings = Get-Content (Join-Path $ScriptDir "settings.json") -Raw | ConvertFrom-Json
+$RestPort = [int]$Settings.server.rest_port
+$ProxyPort = [int]$Settings.proxy.port
+function Test-OvmsReady {
+    try {
+        $r = Invoke-RestMethod -Uri "http://127.0.0.1:$RestPort/v3/models" -TimeoutSec 3
+        return $null -ne $r.data
+    } catch { return $false }
 }
-
-# If not running, launch it
-Write-Host ""
-Write-Host "🚀 Starting AI Server for IDE Integration..." -ForegroundColor Cyan
-Write-Host "   Model: $ModelName (Intel Arc A750)" -ForegroundColor DarkGray
-
-# Optional Proxy Launch
-if ($Proxy) {
-    if ($ShowProxy) {
-        Write-Host "   Proxy: Enabled (Launching in new window)..." -ForegroundColor DarkGray
-        Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Normal
-    }
-    else {
-        Write-Host "   Proxy: Enabled (Minimized window)..." -ForegroundColor DarkGray
-        Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Hidden
-    }
+if (-not (Test-OvmsReady)) {
+    Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$ScriptDir\\start_server.ps1", $(if ($VerboseOutput) { "-VerboseOutput" } else { "" }) -WindowStyle Normal
+    for ($i=0; $i -lt 60 -and -not (Test-OvmsReady); $i++) { Start-Sleep -Seconds 2 }
+    if (-not (Test-OvmsReady)) { throw "OVMS did not become ready." }
 }
-
-# Display Config for User Copy-Paste
-Write-Host ""
-Write-Host "📋 Configure your IDE (PhpStorm / VS Code) with:" -ForegroundColor Yellow
-Write-Host "   Base URL:   $BaseUrl" -ForegroundColor White
-Write-Host "   API Key:    sk-dummy" -ForegroundColor White
-Write-Host "   Model:      $ModelName" -ForegroundColor White
-Write-Host ""
-
-# Launch start_server.ps1
-& "$PSScriptRoot\start_server.ps1" -VerboseOutput:$VerboseOutput
+Write-Host "OVMS ready: http://127.0.0.1:$RestPort/v3" -ForegroundColor Green
+if ($Proxy -or $Settings.proxy.enabled) {
+    if ($ShowProxy) { & "$ScriptDir\\run_ide_proxy.ps1" }
+    else { Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$ScriptDir\\run_ide_proxy.ps1" -WindowStyle Hidden }
+    Write-Host "Compatibility gateway: http://127.0.0.1:$ProxyPort/v3" -ForegroundColor Cyan
+}

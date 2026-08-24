@@ -1,0 +1,19 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "rest_port": 8000,
+    "grpc_port": 9000,
+    "log_level": "ERROR"
+  },
+  "paths": {
+    "model_repository": ".\\models",
+    "ovms_dir": ".\\ovms\\ovms"
+  },
+  "proxy": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8001,
+    "compatibility_profile": "passthrough",
+    "log_prompt_preview": false
+  }
+}
