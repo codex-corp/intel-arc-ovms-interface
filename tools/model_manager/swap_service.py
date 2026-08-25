@@ -76,7 +76,7 @@ class SwapService:
         self,
         model_name: str,
         model_path: Optional[str] = None,
-        timeout_sec: int = 60,
+        timeout_sec: int = 120,
         no_wait: bool = False,
         dry_run: bool = False,
     ) -> Dict[str, object]:

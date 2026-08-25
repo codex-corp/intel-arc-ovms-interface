@@ -1,6 +1,9 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
+
 . "$PSScriptRoot\Load-Config.ps1"
 
 if (-not (Test-Path $PYTHON_EXE)) {

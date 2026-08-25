@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Downloads and sets up OVMS Windows native binary
@@ -98,7 +98,8 @@ if ($needsDownload) {
 
             if ($winAsset) {
                 $zipPath = Join-Path $env:TEMP $winAsset.name
-                Write-Host "  Downloading: $($winAsset.name) ($([math]::Round($winAsset.size/1MB, 1)) MB)..." -ForegroundColor Yellow
+                $sizeMb = [math]::Round($winAsset.size / 1048576, 1)
+                Write-Host ("  Downloading: " + $winAsset.name + " (" + $sizeMb + " MB)...") -ForegroundColor Yellow
                 Invoke-WebRequest -Uri $winAsset.browser_download_url -OutFile $zipPath -UseBasicParsing
 
                 # Avoid mixing old and new runtime files during an explicit upgrade.

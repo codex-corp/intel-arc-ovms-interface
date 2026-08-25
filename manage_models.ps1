@@ -1,17 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Command-based local model control (status/list/switch/rollback + native OVMS lifecycle).
-.EXAMPLE
-    .\manage_models.ps1 status
-    .\manage_models.ps1 list
-    .\manage_models.ps1 switch Qwen3-4B
-    .\manage_models.ps1 pull OpenVINO/Qwen3-4B-int4-ov -Name qwen3-4b
-    .\manage_models.ps1 configure qwen3-4b -Path ".\models\qwen3-4b"
-    .\manage_models.ps1 enable qwen3-4b
-    .\manage_models.ps1 disable qwen3-4b
-    .\manage_models.ps1 reload
-    .\manage_models.ps1 rollback
+    Command-based local model control (delegates to Python Core CLI).
 #>
 
 param(
@@ -34,78 +24,90 @@ param(
     [string]$GgufFilename,
     [switch]$Overwrite,
     [switch]$NoReload,
-    [int]$Timeout = 180,
+    [int]$Timeout = 120,
     [switch]$NoWait,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$JsonOutput
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 . "$ScriptDir\Load-Config.ps1"
 
-$nativeCommands = @("native-list", "pull", "configure", "enable", "disable", "reload")
-if ($nativeCommands -contains $Command) {
-    $nativeCommand = if ($Command -eq "native-list") { "list" } else { $Command }
-    $lifecycle = Join-Path $ScriptDir "Invoke-OvmsLifecycle.ps1"
-    $nativeArgs = @($nativeCommand)
+$argsList = @("-m", "tools.core.cli")
 
-    switch ($Command) {
-        "native-list" {
-            if ($RepositoryPath) { $nativeArgs += @("-RepositoryPath", $RepositoryPath) }
-        }
-        "pull" {
-            if (-not $Model) { throw "pull command requires a source model argument." }
-            $nativeArgs += @("-SourceModel", $Model, "-Task", $Task, "-Device", $Device, "-PerformanceProfile", $PerformanceProfile)
-            if ($Name) { $nativeArgs += @("-Name", $Name) }
-            if ($RepositoryPath) { $nativeArgs += @("-RepositoryPath", $RepositoryPath) }
-            if ($GgufFilename) { $nativeArgs += @("-GgufFilename", $GgufFilename) }
-            if ($Overwrite) { $nativeArgs += "-Overwrite" }
-        }
-        "configure" {
-            if (-not $Path) { throw "configure command requires -Path." }
-            $nativeArgs += @("-ModelPath", $Path, "-Task", $Task, "-Device", $Device, "-PerformanceProfile", $PerformanceProfile)
-            if ($Model) { $nativeArgs += @("-Model", $Model) }
-            if ($Name) { $nativeArgs += @("-Name", $Name) }
-        }
-        "enable" {
-            if (-not $Model -and -not $Name) { throw "enable command requires a model name." }
-            if ($Model) { $nativeArgs += @("-Model", $Model) }
-            if ($Name) { $nativeArgs += @("-Name", $Name) }
-            if ($Path) { $nativeArgs += @("-ModelPath", $Path) }
-            if ($ConfigPath) { $nativeArgs += @("-ConfigPath", $ConfigPath) }
-            if ($NoReload) { $nativeArgs += "-NoReload" }
-        }
-        "disable" {
-            if (-not $Model -and -not $Name) { throw "disable command requires a model name." }
-            if ($Model) { $nativeArgs += @("-Model", $Model) }
-            if ($Name) { $nativeArgs += @("-Name", $Name) }
-            if ($ConfigPath) { $nativeArgs += @("-ConfigPath", $ConfigPath) }
-            if ($NoReload) { $nativeArgs += "-NoReload" }
-        }
-        "reload" {
-            if ($ConfigPath) { $nativeArgs += @("-ConfigPath", $ConfigPath) }
-        }
+$targetModel = if ($Model) { $Model } else { $Name }
+
+switch ($Command) {
+    "status" {
+        $argsList += "status"
     }
-
-    & $lifecycle @nativeArgs
-    exit $LASTEXITCODE
+    "list" {
+        $argsList += "list"
+        if ($RepositoryPath) { $argsList += @("--repository-path", $RepositoryPath) }
+    }
+    "native-list" {
+        $argsList += "native-list"
+        if ($RepositoryPath) { $argsList += @("--repository-path", $RepositoryPath) }
+    }
+    "switch" {
+        if (-not $targetModel) { throw "switch command requires a model argument." }
+        $argsList += @("switch", $targetModel)
+        if ($Path) { $argsList += @("--path", $Path) }
+        if ($Timeout) { $argsList += @("--timeout", "$Timeout") }
+        if ($NoWait) { $argsList += "--no-wait" }
+        if ($DryRun) { $argsList += "--dry-run" }
+    }
+    "pull" {
+        if (-not $targetModel) { throw "pull command requires a source model argument." }
+        $argsList += @("pull", $targetModel)
+        if ($Path) { $argsList += @("--dest", $Path) }
+        if ($RepositoryPath) { $argsList += @("--repository-path", $RepositoryPath) }
+        if ($Task) { $argsList += @("--task", $Task) }
+        if ($Device) { $argsList += @("--device", $Device) }
+        if ($PerformanceProfile) { $argsList += @("--performance-profile", $PerformanceProfile) }
+        if ($GgufFilename) { $argsList += @("--gguf-filename", $GgufFilename) }
+        if ($Overwrite) { $argsList += "--overwrite" }
+    }
+    "configure" {
+        if (-not $targetModel) { throw "configure command requires a model argument." }
+        $argsList += @("configure", $targetModel)
+        if ($Path) { $argsList += @("--path", $Path) }
+        if ($RepositoryPath) { $argsList += @("--repository-path", $RepositoryPath) }
+        if ($ConfigPath) { $argsList += @("--config-path", $ConfigPath) }
+        if ($Task) { $argsList += @("--task", $Task) }
+        if ($Device) { $argsList += @("--device", $Device) }
+        if ($PerformanceProfile) { $argsList += @("--performance-profile", $PerformanceProfile) }
+        if ($NoReload) { $argsList += "--no-reload" }
+        if ($DryRun) { $argsList += "--dry-run" }
+    }
+    "enable" {
+        if (-not $targetModel) { throw "enable command requires a model argument." }
+        $argsList += @("enable", $targetModel)
+        if ($Path) { $argsList += @("--path", $Path) }
+        if ($ConfigPath) { $argsList += @("--config-path", $ConfigPath) }
+        if ($NoReload) { $argsList += "--no-reload" }
+        if ($DryRun) { $argsList += "--dry-run" }
+    }
+    "disable" {
+        if (-not $targetModel) { throw "disable command requires a model argument." }
+        $argsList += @("disable", $targetModel)
+        if ($ConfigPath) { $argsList += @("--config-path", $ConfigPath) }
+        if ($NoReload) { $argsList += "--no-reload" }
+        if ($DryRun) { $argsList += "--dry-run" }
+    }
+    "reload" {
+        $argsList += "reload"
+        if ($ConfigPath) { $argsList += @("--config-path", $ConfigPath) }
+    }
+    "rollback" {
+        $argsList += "rollback"
+        if ($ConfigPath) { $argsList += @("--config-path", $ConfigPath) }
+    }
 }
 
-# Existing hot-swap flow is preserved unchanged.
-& "$ScriptDir\Initialize-DynamicConfig.ps1"
-
-$ManagerScript = Join-Path $ScriptDir "tools\model_manager\manage_models.py"
-$argsList = @($ManagerScript, "--root", $ScriptDir, $Command)
-
-if ($Command -eq "switch") {
-    if (-not $Model) {
-        throw "switch command requires a model argument."
-    }
-    $argsList += $Model
-    if ($Path) { $argsList += @("--path", $Path) }
-    if ($Timeout) { $argsList += @("--timeout", "$Timeout") }
-    if ($NoWait) { $argsList += "--no-wait" }
-    if ($DryRun) { $argsList += "--dry-run" }
+if ($JsonOutput) {
+    $argsList += "--json"
 }
 
 & $PYTHON_EXE @argsList

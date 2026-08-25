@@ -12,6 +12,7 @@ param(
     [ValidateSet("list", "pull", "configure", "enable", "disable", "reload")]
     [string]$Command,
 
+    [Parameter(Position = 1)]
     [string]$Model,
     [string]$SourceModel,
     [string]$ModelPath,
@@ -252,15 +253,32 @@ switch ($Command) {
         $resolvedModelPath = Resolve-LocalPath $resolvedModelPath
         if (-not (Test-Path $resolvedModelPath)) { throw "Model path does not exist: $resolvedModelPath" }
 
-        Invoke-OvmsCli @(
-            "--add_to_config",
-            "--config_path", $ConfigPath,
-            "--model_name", $servableName,
-            "--model_path", $resolvedModelPath
-        )
+        $currentCfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        $alreadyConfigured = $false
+        if ($currentCfg.model_config_list) {
+            foreach ($m in $currentCfg.model_config_list) {
+                if ($m.config.name -eq $servableName) {
+                    $alreadyConfigured = $true
+                    break
+                }
+            }
+        }
+
+        if (-not $alreadyConfigured) {
+            Invoke-OvmsCli @(
+                "--add_to_config",
+                "--config_path", $ConfigPath,
+                "--model_name", $servableName,
+                "--model_path", $resolvedModelPath
+            )
+        } else {
+            Write-Host "  Model '$servableName' is already enabled in config." -ForegroundColor DarkGray
+        }
+
         Update-LocalRegistry -ModelName $servableName -PathValue $resolvedModelPath
         Reload-OvmsConfig
         Write-Host "  Enabled model in config: $servableName" -ForegroundColor Green
+        $global:LASTEXITCODE = 0
     }
 
     "disable" {
@@ -269,17 +287,36 @@ switch ($Command) {
         if (-not $servableName) { throw "disable requires a model name." }
 
         & "$ScriptDir\Initialize-DynamicConfig.ps1" | Out-Null
-        Invoke-OvmsCli @(
-            "--remove_from_config",
-            "--config_path", $ConfigPath,
-            "--model_name", $servableName
-        )
+
+        $currentCfg = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+        $isConfigured = $false
+        if ($currentCfg.model_config_list) {
+            foreach ($m in $currentCfg.model_config_list) {
+                if ($m.config.name -eq $servableName) {
+                    $isConfigured = $true
+                    break
+                }
+            }
+        }
+
+        if ($isConfigured) {
+            Invoke-OvmsCli @(
+                "--remove_from_config",
+                "--config_path", $ConfigPath,
+                "--model_name", $servableName
+            )
+        } else {
+            Write-Host "  Model '$servableName' is already disabled in config." -ForegroundColor DarkGray
+        }
+
         Reload-OvmsConfig
         Write-Host "  Disabled model in config: $servableName" -ForegroundColor Green
+        $global:LASTEXITCODE = 0
     }
 
     "reload" {
         & "$ScriptDir\Initialize-DynamicConfig.ps1" | Out-Null
         Reload-OvmsConfig
+        $global:LASTEXITCODE = 0
     }
 }

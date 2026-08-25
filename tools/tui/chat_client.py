@@ -6,7 +6,8 @@ from typing import AsyncIterator, Dict, List, Optional
 
 import aiohttp
 
-from tools.tui.backend import RuntimeConfig
+from tools.core.config import RuntimeConfig
+from tools.core.readiness import check_tcp_port
 
 
 @dataclass
@@ -28,7 +29,12 @@ class ChatClient:
         temperature: float = 0.2,
         max_tokens: int = 1024,
     ) -> AsyncIterator[ChatDelta]:
-        url = f"{self.config.gateway_base_url}/chat/completions"
+        base_url = (
+            self.config.gateway_base_url
+            if check_tcp_port(self.config.client_host, self.config.proxy_port)
+            else f"http://127.0.0.1:{self.config.ovms_port}/v3"
+        )
+        url = f"{base_url}/chat/completions"
         payload = {
             "model": model,
             "messages": messages,

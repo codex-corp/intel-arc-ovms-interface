@@ -29,11 +29,11 @@ if (-not (Test-Path $ConfigPath)) {
     }
     $config | ConvertTo-Json -Depth 8 | Set-Content -Path $ConfigPath -Encoding UTF8
     Write-Host "  Created dynamic config: $ConfigPath" -ForegroundColor Green
-} else {
     try {
         $existingConfig = Get-Content $ConfigPath -Raw | ConvertFrom-Json
-        if (-not $existingConfig.model_config_list -or -not $existingConfig.model_config_list[0].config) {
-            throw "missing model_config_list[0].config"
+        $hasList = ($null -ne $existingConfig.model_config_list) -or ($null -ne $existingConfig.mediapipe_config_list)
+        if (-not $hasList) {
+            throw "missing model_config_list or mediapipe_config_list"
         }
         Write-Host "  Dynamic config already exists and is valid: $ConfigPath" -ForegroundColor DarkGray
     }

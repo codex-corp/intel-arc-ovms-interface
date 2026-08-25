@@ -27,6 +27,12 @@ class ModelManagerTests(unittest.TestCase):
             path.write_text(json.dumps({"models": {"qwen": ".\\models\\qwen"}}), encoding="utf-8")
             self.assertEqual({"qwen": ".\\models\\qwen"}, load_registry(path))
 
+    def test_registry_handles_utf8_bom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "models_registry.json"
+            path.write_text("\ufeff" + json.dumps({"models": {"qwen": ".\\models\\qwen"}}), encoding="utf-8")
+            self.assertEqual({"qwen": ".\\models\\qwen"}, load_registry(path))
+
     def test_extract_and_swap_preserve_extra_config(self):
         config = {
             "model_config_list": [
@@ -54,11 +60,11 @@ class ModelManagerTests(unittest.TestCase):
         self.assertTrue(swapped["global_setting"])
         self.assertEqual(("old", "old-path"), extract_current_model(config))
 
-    def test_invalid_shape_raises(self):
-        with self.assertRaises(ConfigShapeError):
-            extract_current_model({})
-        with self.assertRaises(ConfigShapeError):
-            build_swapped_config({"model_config_list": []}, "x", "y")
+    def test_empty_config_graceful_handling(self):
+        self.assertEqual(("", ""), extract_current_model({}))
+        swapped = build_swapped_config({"model_config_list": []}, "x", "y")
+        self.assertEqual(("x", "y"), extract_current_model(swapped))
+        self.assertEqual(1, len(swapped["model_config_list"]))
 
     def test_atomic_write_backup_and_rollback(self):
         with tempfile.TemporaryDirectory() as tmp:

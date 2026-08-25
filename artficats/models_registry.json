@@ -1,0 +1,15 @@
+{
+  "models": {
+    "qwen2.5-coder-7b": "g:\\ai-hub\\llama\\models\\qwen-int4-ov-versioned",
+    "Qwen2.5-Coder-7B-Instruct": "g:\\ai-hub\\llama\\models\\Qwen2.5-Coder-7B-Instruct-int4-ov",
+    "Qwen3-8B": "g:\\ai-hub\\llama\\models\\Qwen3-8B-int4-ov",
+    "Qwen3-4B": "g:\\ai-hub\\llama\\models\\Qwen3-4B-int4-ov",
+    "Qwen3-14B": "g:\\ai-hub\\llama\\models\\Qwen3-14B-int4-ov",
+    "DeepSeek-R1-Distill-7B": "g:\\ai-hub\\llama\\models\\DeepSeek-R1-Distill-Qwen-7B-int4-ov",
+    "DeepSeek-R1-Distill-14B": "g:\\ai-hub\\llama\\models\\DeepSeek-R1-Distill-Qwen-14B-int4-ov",
+    "Phi-4-mini-instruct": "G:\\ai-hub\\llama\\models\\Phi-4-mini-instruct-int4-ov",
+    "Phi-4": "g:\\ai-hub\\llama\\models\\phi-4-int4-ov",
+    "Mixtral-8x7B-Instruct": "g:\\ai-hub\\llama\\models\\mixtral-8x7b-instruct-v0.1-int4-ov",
+    "Qwen3-1.7B": "g:\\ai-hub\\llama\\models\\Qwen3-1.7B-int4-ov"
+  }
+}

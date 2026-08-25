@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "models": {
+    "qwen2.5-coder-7b": {
+      "repo_id": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
+      "default_name": "qwen2.5-coder-7b",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Best for Coding & Agentic Workflows (7B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Qwen2.5-Coder-7B-Instruct": {
+      "repo_id": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
+      "default_name": "Qwen2.5-Coder-7B-Instruct",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Best for Coding (Full Instruct 7B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Qwen3-1.7B": {
+      "repo_id": "OpenVINO/Qwen3-1.7B-int4-ov",
+      "default_name": "Qwen3-1.7B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Ultra-Fast Lightweight Reasoning & Testing (1.7B Parameters)",
+      "default_profile": "Fast"
+    },
+    "Qwen3-4B": {
+      "repo_id": "OpenVINO/Qwen3-4B-int4-ov",
+      "default_name": "Qwen3-4B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Fast Qwen3, Great Quality/Speed Balance (4B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Qwen3-8B": {
+      "repo_id": "OpenVINO/Qwen3-8B-int4-ov",
+      "default_name": "Qwen3-8B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Latest Qwen3 General Purpose LLM (8B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Qwen3-14B": {
+      "repo_id": "OpenVINO/Qwen3-14B-int4-ov",
+      "default_name": "Qwen3-14B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Largest Qwen3 Model, High Quality Generation (14B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "DeepSeek-R1-Distill-7B": {
+      "repo_id": "OpenVINO/DeepSeek-R1-Distill-Qwen-7B-int4-ov",
+      "default_name": "DeepSeek-R1-Distill-7B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "DeepSeek-R1 Distilled Reasoning Model (7B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "DeepSeek-R1-Distill-14B": {
+      "repo_id": "OpenVINO/DeepSeek-R1-Distill-Qwen-14B-int4-ov",
+      "default_name": "DeepSeek-R1-Distill-14B",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "DeepSeek-R1 Distilled High Capacity Reasoning (14B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Phi-4-mini-instruct": {
+      "repo_id": "OpenVINO/Phi-4-mini-instruct-int4-ov",
+      "default_name": "Phi-4-mini-instruct",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Microsoft Phi-4 Mini Instruct (3.8B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Phi-4": {
+      "repo_id": "OpenVINO/phi-4-int4-ov",
+      "default_name": "Phi-4",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Microsoft Phi-4 Full Model (14B Parameters)",
+      "default_profile": "Balanced"
+    },
+    "Mixtral-8x7B-Instruct": {
+      "repo_id": "OpenVINO/mixtral-8x7b-instruct-v0.1-int4-ov",
+      "default_name": "Mixtral-8x7B-Instruct",
+      "task": "text_generation",
+      "device": "GPU",
+      "precision": "int4",
+      "description": "Mixture-of-Experts MoE Model (⚠️ CPU Offload Required)",
+      "default_profile": "Safe"
+    }
+  }
+}

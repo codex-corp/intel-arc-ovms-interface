@@ -1,29 +1,45 @@
 from __future__ import annotations
 
-import os
+import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
+from tools.core.config import RuntimeConfig, load_core_config
+from tools.core.config_engine import extract_current_model, load_json
+from tools.core.lifecycle import OvmsLifecycleService
+from tools.core.manifest import (
+    discover_all_models,
+    is_model_weights_ready,
+    load_manifest,
+)
+from tools.core.process_manager import ProcessManager
+from tools.core.readiness import (
+    check_tcp_port,
+    probe_gateway_readiness,
+    probe_ovms_readiness,
+)
 from tools.model_manager.model_registry import load_registry
-from tools.model_manager.ovms_client import fetch_models
+
+_tcp_probe = check_tcp_port
+
+_GLOBAL_PROCESS_MANAGER: Optional[ProcessManager] = None
+_GLOBAL_LIFECYCLE_SERVICE: Optional[OvmsLifecycleService] = None
 
 
-@dataclass
-class RuntimeConfig:
-    root: Path
-    python_exe: Path
-    ovms_port: int
-    proxy_port: int
-    proxy_host: str
-    default_model: str
-    model_name: str
-    model_path: str
+def _get_process_manager(config: RuntimeConfig) -> ProcessManager:
+    global _GLOBAL_PROCESS_MANAGER
+    if _GLOBAL_PROCESS_MANAGER is None or _GLOBAL_PROCESS_MANAGER.config.root != config.root:
+        _GLOBAL_PROCESS_MANAGER = ProcessManager(config)
+    return _GLOBAL_PROCESS_MANAGER
 
-    @property
-    def gateway_base_url(self) -> str:
-        return f"http://{self.proxy_host}:{self.proxy_port}/v3"
+
+def _get_lifecycle_service(config: RuntimeConfig) -> OvmsLifecycleService:
+    global _GLOBAL_LIFECYCLE_SERVICE
+    if _GLOBAL_LIFECYCLE_SERVICE is None or _GLOBAL_LIFECYCLE_SERVICE.config.root != config.root:
+        _GLOBAL_LIFECYCLE_SERVICE = OvmsLifecycleService(config)
+    return _GLOBAL_LIFECYCLE_SERVICE
 
 
 @dataclass
@@ -33,133 +49,230 @@ class RuntimeStatus:
     loaded_models: List[str]
     configured_model: str
     registry_models: Dict[str, str]
+    downloaded_models: List[str] = field(default_factory=list)
+    enabled_models: List[str] = field(default_factory=list)
     ovms_error: Optional[str] = None
 
 
-def _load_env_file(path: Path) -> Dict[str, str]:
-    values: Dict[str, str] = {}
-    if not path.exists():
-        return values
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
+def is_model_downloaded(model_path_str: Optional[str]) -> bool:
+    """Delegates model weight integrity verification to the Core manifest engine."""
+    return is_model_weights_ready(model_path_str)
 
 
-def load_runtime_config(root: Path | None = None) -> RuntimeConfig:
-    root = (root or Path(__file__).resolve().parents[2]).resolve()
-    values = _load_env_file(root / "config.env")
-    example = _load_env_file(root / "config.env.example")
+def get_downloaded_models(
+    registry: Dict[str, str],
+    configured_name: str = "",
+    configured_path: str = "",
+) -> List[str]:
+    """Returns sorted list of all model names with complete weights present on disk."""
+    downloaded: List[str] = []
+    for name, path_str in registry.items():
+        if is_model_weights_ready(path_str):
+            downloaded.append(name)
+    if configured_name and configured_name not in downloaded:
+        if is_model_weights_ready(configured_path):
+            downloaded.append(configured_name)
+    return sorted(downloaded)
 
-    def get(key: str, fallback: str) -> str:
-        return values.get(key) or example.get(key) or fallback
 
-    python_exe = Path(get("PYTHON_EXE", r".\.venv\Scripts\python.exe"))
-    if not python_exe.is_absolute():
-        python_exe = (root / python_exe).resolve()
+def read_enabled_models(config: RuntimeConfig) -> List[str]:
+    """Reads configured active models from config.json without crashing on empty lists."""
+    config_path = config.config_json
+    if not config_path.exists():
+        return [config.model_name] if config.model_name else []
+    try:
+        data = load_json(config_path)
+        models = []
+        for item in data.get("model_config_list", []):
+            cfg = item.get("config", {}) if isinstance(item, dict) else {}
+            n = cfg.get("name")
+            if n:
+                models.append(str(n).strip().lstrip("\ufeff"))
+        return models
+    except Exception:
+        return [config.model_name] if config.model_name else []
 
-    return RuntimeConfig(
-        root=root,
-        python_exe=python_exe,
-        ovms_port=int(get("OVMS_PORT", "8000")),
-        proxy_port=int(get("PROXY_PORT", "8001")),
-        proxy_host=get("PROXY_HOST", "127.0.0.1"),
-        default_model=get("DEFAULT_MODEL_NAME", get("MODEL_NAME", "")),
-        model_name=get("MODEL_NAME", ""),
-        model_path=get("MODEL_PATH", ""),
-    )
+
+def load_runtime_config(root: Optional[Path] = None) -> RuntimeConfig:
+    """Loads centralized runtime configuration via Python Core."""
+    return load_core_config(root)
 
 
 def read_registry(config: RuntimeConfig) -> Dict[str, str]:
-    return load_registry(config.root / "artficats" / "models_registry.json")
+    """Reads legacy registry for backward compatibility."""
+    if not config.legacy_registry_path.exists():
+        return {}
+    return load_registry(config.legacy_registry_path)
 
 
 def get_runtime_status(config: RuntimeConfig) -> RuntimeStatus:
-    ovms = fetch_models(config.ovms_port, timeout_sec=2)
-    gateway_reachable = _tcp_probe(config.proxy_host, config.proxy_port)
-    return RuntimeStatus(
-        ovms_reachable=ovms.reachable,
-        gateway_reachable=gateway_reachable,
-        loaded_models=ovms.models,
-        configured_model=config.model_name,
-        registry_models=read_registry(config),
-        ovms_error=ovms.error,
+    """Collects system status using Core readiness and manifest discovery."""
+    ovms_probe = probe_ovms_readiness(
+        config.ovms_port,
+        client_host=config.client_host,
+        timeout_sec=1.5,
+    )
+    gateway_reachable = probe_gateway_readiness(
+        config.proxy_port,
+        client_host=config.client_host,
+        timeout_sec=1.0,
+    )
+    registry = read_registry(config)
+    discovered = discover_all_models(
+        config,
+        active_model=config.model_name,
+        loaded_models=ovms_probe.models,
     )
 
+    downloaded = [name for name, info in discovered.items() if info.is_downloaded]
+    enabled = read_enabled_models(config)
 
-def _tcp_probe(host: str, port: int) -> bool:
-    import socket
-
+    # Determine currently configured model from config.json
     try:
-        with socket.create_connection((host, port), timeout=0.8):
-            return True
-    except OSError:
-        return False
+        cfg = load_json(config.config_json)
+        current_name, _ = extract_current_model(cfg)
+        configured_model = current_name or config.model_name
+    except Exception:
+        configured_model = config.model_name
 
-
-def _powershell_args(script: Path, *arguments: str) -> List[str]:
-    return [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script),
-        *arguments,
-    ]
+    return RuntimeStatus(
+        ovms_reachable=ovms_probe.reachable,
+        gateway_reachable=gateway_reachable,
+        loaded_models=ovms_probe.models,
+        configured_model=configured_model,
+        registry_models=registry,
+        downloaded_models=sorted(downloaded),
+        enabled_models=enabled,
+        ovms_error=ovms_probe.error,
+    )
 
 
 def run_management_command(
     config: RuntimeConfig,
     command: str,
-    model: str | None = None,
+    model: Optional[str] = None,
     *,
-    model_path: str | None = None,
-    timeout_sec: int = 180,
+    model_path: Optional[str] = None,
+    timeout_sec: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    """Call the existing stable management surface without duplicating lifecycle logic."""
-    script = config.root / "manage_models.ps1"
-    arguments = [command]
-    if model:
-        arguments.append(model)
-    if model_path:
-        arguments.extend(["-Path", model_path])
+    """
+    Executes model lifecycle commands directly via Python Core OvmsLifecycleService,
+    returning CompletedProcess-compatible results with zero PowerShell subprocess overhead.
+    """
+    service = _get_lifecycle_service(config)
 
-    return subprocess.run(
-        _powershell_args(script, *arguments),
-        cwd=config.root,
-        capture_output=True,
-        text=True,
-        timeout=timeout_sec,
-        env=os.environ.copy(),
-    )
+    try:
+        if command == "switch" or command == "enable":
+            if not model:
+                raise ValueError("Model name is required for switch/enable.")
+            res = service.switch_model(
+                model_name=model,
+                model_path=model_path,
+                timeout_sec=timeout_sec,
+            )
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", command, model],
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
+
+        elif command == "disable":
+            if not model:
+                raise ValueError("Model name is required for disable.")
+            res = service.disable_model(model)
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", "disable", model],
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
+
+        elif command == "reload":
+            res = service.reload()
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", "reload"],
+                returncode=0 if res.get("reloaded", True) else 1,
+                stdout=stdout,
+                stderr="",
+            )
+
+        elif command == "rollback":
+            res = service.rollback()
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", "rollback"],
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
+
+        elif command == "status":
+            res = service.status()
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", "status"],
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
+
+        else:
+            raise ValueError(f"Unknown management command: {command}")
+
+    except Exception as exc:
+        return subprocess.CompletedProcess(
+            args=["python", "-m", "tools.core.lifecycle", command, str(model or "")],
+            returncode=1,
+            stdout="",
+            stderr=str(exc),
+        )
+
+
+def download_model_files(
+    config: RuntimeConfig,
+    model_name: str,
+    on_progress: Optional[Callable[[str], None]] = None,
+) -> str:
+    """Download OpenVINO INT4 model weights using Core downloader (native pull with fallback)."""
+    from tools.core.downloader import pull_model
+
+    dest_dir = pull_model(config, model_name, on_progress=on_progress)
+    return str(dest_dir)
 
 
 def start_runtime_component(config: RuntimeConfig, component: str) -> subprocess.Popen:
-    """Start OVMS or the compatibility gateway as a hidden child process on Windows."""
-    scripts = {
-        "ovms": config.root / "start_server_dynamic.ps1",
-        "gateway": config.root / "run_ide_proxy.ps1",
-    }
-    if component not in scripts:
+    """Supervises OVMS or Gateway processes using Python Core ProcessManager with zero visible popups."""
+    mgr = _get_process_manager(config)
+
+    if component == "ovms":
+        mgr.start_ovms(wait_for_ready=False)
+        proc = mgr._owned_processes.get("ovms")
+        if proc:
+            return proc
+    elif component == "gateway":
+        mgr.start_gateway(wait_for_ready=False)
+        proc = mgr._owned_processes.get("gateway")
+        if proc:
+            return proc
+    else:
         raise ValueError(f"Unknown runtime component: {component}")
 
+    # Fallback dummy process if already running externally
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     return subprocess.Popen(
-        _powershell_args(scripts[component]),
-        cwd=config.root,
+        ["cmd.exe", "/c", "exit 0"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        env=os.environ.copy(),
         creationflags=creationflags,
     )
 
 
 def format_management_result(result: subprocess.CompletedProcess[str]) -> str:
+    """Formats CompletedProcess output for display in TUI action output panel."""
     output = (result.stdout or "").strip()
     error = (result.stderr or "").strip()
     parts = [part for part in (output, error) if part]

@@ -8,6 +8,18 @@ import sys
 import time
 import subprocess
 
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Load config.env (same file used by PowerShell scripts)
 def load_config():
     config = {}
@@ -30,7 +42,7 @@ def _config_bool(config, key, default=False):
 
 
 _cfg = load_config()
-TARGET_URL = f"http://localhost:{_cfg.get('OVMS_PORT', '8000')}"
+TARGET_URL = f"http://127.0.0.1:{_cfg.get('OVMS_PORT', '8000')}"
 HOST = _cfg.get('PROXY_HOST', '127.0.0.1')
 PORT = int(_cfg.get('PROXY_PORT', '8001'))
 LOG_PROMPTS = _config_bool(_cfg, 'PROXY_LOG_PROMPTS', False)

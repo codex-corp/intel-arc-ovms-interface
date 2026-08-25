@@ -63,6 +63,28 @@ class TuiBackendTests(unittest.TestCase):
 
         self.assertEqual("Command exited with code 0.", format_management_result(result))
 
+    def test_is_model_downloaded_and_get_downloaded_models(self):
+        from tools.tui.backend import get_downloaded_models, is_model_downloaded
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir) / "test-model"
+            self.assertFalse(is_model_downloaded(str(model_dir)))
+
+            model_dir.mkdir()
+            (model_dir / "openvino_model.xml").write_text("<xml/>", encoding="utf-8")
+            self.assertFalse(is_model_downloaded(str(model_dir)))
+
+            (model_dir / "openvino_model.bin").write_bytes(b"\x00" * 64)
+            self.assertTrue(is_model_downloaded(str(model_dir)))
+
+            registry = {
+                "installed-model": str(model_dir),
+                "missing-model": str(Path(temp_dir) / "missing"),
+            }
+
+            downloaded = get_downloaded_models(registry)
+            self.assertEqual(["installed-model"], downloaded)
+
 
 if __name__ == "__main__":
     unittest.main()

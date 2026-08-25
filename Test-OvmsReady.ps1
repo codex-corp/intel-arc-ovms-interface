@@ -1,16 +1,13 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Checks whether OVMS is reachable and serving the expected model.
-.DESCRIPTION
-    Uses the OpenAI-compatible /v3/models endpoint instead of treating an open TCP port as readiness.
-    Returns exit code 0 when ready and 1 otherwise.
+    Checks whether OVMS is reachable and serving the expected model (delegates to Python Core CLI).
 #>
 
 param(
     [int]$Port,
     [string]$ModelName,
-    [int]$TimeoutSec = 3,
+    [int]$TimeoutSec = 5,
     [switch]$Quiet
 )
 
@@ -21,25 +18,15 @@ $ScriptDir = $PSScriptRoot
 if (-not $Port) { $Port = [int]$OVMS_PORT }
 if (-not $ModelName) { $ModelName = $MODEL_NAME }
 
-try {
-    $response = Invoke-RestMethod -Uri "http://localhost:$Port/v3/models" -Method Get -TimeoutSec $TimeoutSec
-    $modelIds = @($response.data | ForEach-Object { [string]$_.id })
-
-    if ($ModelName -and $modelIds -notcontains $ModelName) {
-        if (-not $Quiet) {
-            Write-Host "OVMS is reachable, but model '$ModelName' is not ready." -ForegroundColor Yellow
-        }
-        exit 1
-    }
-
-    if (-not $Quiet) {
-        Write-Host "OVMS is ready on port $Port." -ForegroundColor Green
-    }
-    exit 0
+$argsList = @("-m", "tools.core.cli", "test-ready", "--port", "$Port", "--timeout", "$TimeoutSec")
+if ($ModelName) {
+    $argsList += @("--model", $ModelName)
 }
-catch {
-    if (-not $Quiet) {
-        Write-Host "OVMS is not ready on port $Port: $($_.Exception.Message)" -ForegroundColor DarkGray
-    }
-    exit 1
+if ($Quiet) {
+    $argsList += "--json"
+    $null = & $PYTHON_EXE @argsList
+} else {
+    & $PYTHON_EXE @argsList
 }
+
+exit $LASTEXITCODE
