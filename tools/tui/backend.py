@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -101,6 +100,18 @@ def _tcp_probe(host: str, port: int) -> bool:
         return False
 
 
+def _powershell_args(script: Path, *arguments: str) -> List[str]:
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+        *arguments,
+    ]
+
+
 def run_management_command(
     config: RuntimeConfig,
     command: str,
@@ -111,27 +122,40 @@ def run_management_command(
 ) -> subprocess.CompletedProcess[str]:
     """Call the existing stable management surface without duplicating lifecycle logic."""
     script = config.root / "manage_models.ps1"
-    args = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script),
-        command,
-    ]
+    arguments = [command]
     if model:
-        args.append(model)
+        arguments.append(model)
     if model_path:
-        args.extend(["-Path", model_path])
+        arguments.extend(["-Path", model_path])
 
     return subprocess.run(
-        args,
+        _powershell_args(script, *arguments),
         cwd=config.root,
         capture_output=True,
         text=True,
         timeout=timeout_sec,
         env=os.environ.copy(),
+    )
+
+
+def start_runtime_component(config: RuntimeConfig, component: str) -> subprocess.Popen:
+    """Start OVMS or the compatibility gateway as a hidden child process on Windows."""
+    scripts = {
+        "ovms": config.root / "start_server_dynamic.ps1",
+        "gateway": config.root / "run_ide_proxy.ps1",
+    }
+    if component not in scripts:
+        raise ValueError(f"Unknown runtime component: {component}")
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.Popen(
+        _powershell_args(scripts[component]),
+        cwd=config.root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        env=os.environ.copy(),
+        creationflags=creationflags,
     )
 
 
