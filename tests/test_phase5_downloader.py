@@ -66,7 +66,7 @@ class Phase5DownloaderTests(unittest.TestCase):
                     destination_override=dest_dir,
                 )
 
-                self.assertEqual(dest_dir, result_path)
+                self.assertEqual(dest_dir.resolve(), result_path.resolve())
                 self.assertTrue((dest_dir / "openvino_model.bin").exists())
                 self.assertTrue(len(progress_messages) > 0)
                 self.assertTrue(any("Connecting to repository" in m or "Downloading" in m for m in progress_messages))
