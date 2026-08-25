@@ -9,7 +9,7 @@ from typing import Dict, Optional
 from .env_config import load_env_file, required_value, update_env_file
 from .file_lock import FileLock
 from .model_registry import load_registry
-from .ovms_client import fetch_models
+from .ovms_client import fetch_models, reload_config
 from .ovms_config import (
     atomic_write_json,
     backup_config,
@@ -55,8 +55,13 @@ class SwapService:
         return load_registry(self.paths.registry_file)
 
     def status(self) -> Dict[str, object]:
-        cfg = load_json(self.paths.config_json)
-        current_name, current_path = extract_current_model(cfg)
+        try:
+            cfg = load_json(self.paths.config_json)
+            current_name, current_path = extract_current_model(cfg)
+        except Exception:
+            current_name = self.env.get("MODEL_NAME", "")
+            current_path = self.env.get("MODEL_PATH", "")
+
         ovms = fetch_models(self.ovms_port)
         return {
             "configured_model": current_name,
@@ -71,7 +76,7 @@ class SwapService:
         self,
         model_name: str,
         model_path: Optional[str] = None,
-        timeout_sec: int = 180,
+        timeout_sec: int = 60,
         no_wait: bool = False,
         dry_run: bool = False,
     ) -> Dict[str, object]:
@@ -83,16 +88,22 @@ class SwapService:
                 f"Unknown model '{model_name}'. Add it to {self.paths.registry_file} or pass --path."
             )
         if not Path(resolved_path).exists():
-            raise FileNotFoundError(f"Model path does not exist: {resolved_path}")
+            raise FileNotFoundError(f"Model path does not exist on disk: {resolved_path}")
 
         with FileLock(self.paths.lock_file, timeout_sec=15):
-            cfg = load_json(self.paths.config_json)
-            current_name, current_path = extract_current_model(cfg)
+            try:
+                cfg = load_json(self.paths.config_json)
+                current_name, current_path = extract_current_model(cfg)
+            except Exception:
+                cfg = {}
+                current_name = self.env.get("MODEL_NAME", "")
+                current_path = self.env.get("MODEL_PATH", "")
+
             if current_name == model_name and current_path == resolved_path:
                 return {
                     "op_id": op_id,
                     "changed": False,
-                    "message": "Already on requested model.",
+                    "message": f"Model '{model_name}' is already active.",
                     "model_name": model_name,
                     "model_path": resolved_path,
                 }
@@ -119,27 +130,36 @@ class SwapService:
                 },
             )
 
-            backup_config(self.paths.config_json, self.paths.backup_json)
+            if self.paths.config_json.exists():
+                backup_config(self.paths.config_json, self.paths.backup_json)
             atomic_write_json(self.paths.config_json, planned)
             update_env_file(
                 self.paths.env_file,
                 {"MODEL_NAME": model_name, "MODEL_PATH": resolved_path},
             )
 
-            if no_wait:
+            # Check if OVMS is reachable
+            ovms_status = fetch_models(self.ovms_port, timeout_sec=1)
+            if not ovms_status.reachable or no_wait:
                 append_event(
                     self.paths.log_file,
-                    {"op_id": op_id, "event": "swap_applied_no_wait", "to_model": model_name},
+                    {"op_id": op_id, "event": "swap_applied_offline", "to_model": model_name},
                 )
                 return {
                     "op_id": op_id,
                     "changed": True,
-                    "state": "applied_no_wait",
+                    "state": "applied",
+                    "message": f"Config updated: {model_name} is set as active model (OVMS offline).",
                     "model_name": model_name,
                     "model_path": resolved_path,
                 }
 
-            ok = self._wait_until_ready(model_name, timeout_sec=timeout_sec)
+            # OVMS is online: Trigger config reload
+            reload_config(self.ovms_port)
+
+            # Wait for model to become ready in OVMS
+            wait_timeout = min(timeout_sec, 45)
+            ok = self._wait_until_ready(model_name, timeout_sec=wait_timeout)
             if ok:
                 append_event(
                     self.paths.log_file,
@@ -149,15 +169,18 @@ class SwapService:
                     "op_id": op_id,
                     "changed": True,
                     "state": "ready",
+                    "message": f"Successfully loaded and verified '{model_name}' in OVMS memory.",
                     "model_name": model_name,
                     "model_path": resolved_path,
                 }
 
+            # If reload timed out, rollback
             rollback_config(self.paths.backup_json, self.paths.config_json)
             update_env_file(
                 self.paths.env_file,
                 {"MODEL_NAME": current_name, "MODEL_PATH": current_path},
             )
+            reload_config(self.ovms_port)
             append_event(
                 self.paths.log_file,
                 {
@@ -168,7 +191,7 @@ class SwapService:
                 },
             )
             raise TimeoutError(
-                f"Model '{model_name}' did not become ready within {timeout_sec}s. Rolled back."
+                f"Model '{model_name}' was configured, but OVMS did not report it ready within {wait_timeout}s. Rolled back."
             )
 
     def rollback(self) -> Dict[str, object]:
@@ -185,9 +208,8 @@ class SwapService:
     def _wait_until_ready(self, model_name: str, timeout_sec: int) -> bool:
         deadline = time.time() + timeout_sec
         while time.time() < deadline:
-            status = fetch_models(self.ovms_port, timeout_sec=3)
+            status = fetch_models(self.ovms_port, timeout_sec=2)
             if status.reachable and model_name in status.models:
                 return True
-            time.sleep(2)
+            time.sleep(1)
         return False
-
