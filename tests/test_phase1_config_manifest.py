@@ -31,7 +31,7 @@ class Phase1ConfigAndManifestTests(unittest.TestCase):
 
             cfg = load_core_config(root)
 
-            self.assertEqual(root, cfg.root)
+            self.assertEqual(root.resolve(), cfg.root.resolve())
             self.assertEqual(9000, cfg.ovms_port)
             self.assertEqual(9001, cfg.proxy_port)
             self.assertEqual("0.0.0.0", cfg.bind_host)

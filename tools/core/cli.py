@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from tools.core.config import RuntimeConfig, load_core_config
+from tools.core.config_engine import atomic_write_json
 from tools.core.downloader import pull_model
 from tools.core.lifecycle import OvmsLifecycleService
 from tools.core.manifest import discover_all_models
@@ -125,6 +126,21 @@ def cmd_list(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_native_list(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
+    service = OvmsLifecycleService(cfg)
+    res = service.native_list(repository_path=getattr(args, "repository_path", None))
+    if args.json:
+        _format_output(res, as_json=True)
+    else:
+        if res.get("stdout"):
+            print(res["stdout"].strip())
+        elif res.get("stderr"):
+            print(res["stderr"].strip(), file=sys.stderr)
+        else:
+            print(f"Native model repository: {res.get('repository_path')}")
+    return res.get("exit_code", 0)
+
+
 def cmd_switch(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     service = OvmsLifecycleService(cfg)
     target_model = args.model_name or getattr(args, "name", None)
@@ -157,18 +173,29 @@ def cmd_configure(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     target_model = args.model_name or getattr(args, "name", None)
     if not target_model:
         if args.json:
-            _format_output({"error": "configure command requires a model name.", "status": "failed"}, as_json=True)
+            _format_output({"error": "configure command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ configure command requires a model name.", file=sys.stderr)
+            print("❌ configure command requires a model name argument.", file=sys.stderr)
+        return 1
+
+    if not args.path:
+        if args.json:
+            _format_output({"error": "configure command requires --path argument.", "status": "failed"}, as_json=True)
+        else:
+            print("❌ configure command requires --path argument.", file=sys.stderr)
         return 1
 
     service = OvmsLifecycleService(cfg)
     try:
-        res = service.enable_model(
+        res = service.configure_model(
             model_name=target_model,
             model_path=args.path,
-            dry_run=args.dry_run,
-            no_reload=args.no_reload,
+            task=getattr(args, "task", "text_generation"),
+            device=getattr(args, "device", "GPU"),
+            performance_profile=getattr(args, "performance_profile", "Balanced"),
+            config_path=getattr(args, "config_path", None),
+            no_reload=getattr(args, "no_reload", False),
+            dry_run=getattr(args, "dry_run", False),
         )
         _format_output(res, as_json=args.json)
         return 0
@@ -193,9 +220,13 @@ def cmd_enable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     try:
         res = service.enable_model(
             model_name=target_model,
-            model_path=args.path,
-            dry_run=args.dry_run,
-            no_reload=args.no_reload,
+            model_path=getattr(args, "path", None),
+            config_path=getattr(args, "config_path", None),
+            task=getattr(args, "task", "text_generation"),
+            device=getattr(args, "device", "GPU"),
+            performance_profile=getattr(args, "performance_profile", "Balanced"),
+            dry_run=getattr(args, "dry_run", False),
+            no_reload=getattr(args, "no_reload", False),
         )
         _format_output(res, as_json=args.json)
         return 0
@@ -220,8 +251,9 @@ def cmd_disable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     try:
         res = service.disable_model(
             model_name=target_model,
-            dry_run=args.dry_run,
-            no_reload=args.no_reload,
+            config_path=getattr(args, "config_path", None),
+            dry_run=getattr(args, "dry_run", False),
+            no_reload=getattr(args, "no_reload", False),
         )
         _format_output(res, as_json=args.json)
         return 0
@@ -244,6 +276,8 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
 
     dest_val = getattr(args, "dest", None) or getattr(args, "path", None)
     dest = Path(dest_val) if dest_val else None
+    repo_val = getattr(args, "repository_path", None)
+    repo_path = Path(repo_val) if repo_val else None
 
     def log(msg: str) -> None:
         if not args.json:
@@ -255,6 +289,12 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
             model_name=target_model,
             on_progress=log,
             destination_override=dest,
+            repository_path=repo_path,
+            task=getattr(args, "task", "text_generation"),
+            device=getattr(args, "device", "GPU"),
+            performance_profile=getattr(args, "performance_profile", "Balanced"),
+            gguf_filename=getattr(args, "gguf_filename", None),
+            overwrite=getattr(args, "overwrite", False),
         )
         if args.json:
             _format_output({
@@ -276,8 +316,9 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
 def cmd_reload(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     service = OvmsLifecycleService(cfg)
     timeout = getattr(args, "timeout", 30)
+    config_path = getattr(args, "config_path", None)
     try:
-        res = service.reload(timeout_sec=timeout)
+        res = service.reload(timeout_sec=timeout, config_path=config_path)
         _format_output(res, as_json=args.json)
         return 0
     except Exception as exc:
@@ -291,8 +332,9 @@ def cmd_reload(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
 def cmd_rollback(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     service = OvmsLifecycleService(cfg)
     target = getattr(args, "target", None)
+    config_path = getattr(args, "config_path", None)
     try:
-        res = service.rollback(target_backup=target)
+        res = service.rollback(target_backup=target, config_path=config_path)
         _format_output(res, as_json=args.json)
         return 0
     except Exception as exc:
@@ -339,9 +381,25 @@ def cmd_test_ready(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
 def cmd_start(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
     pm = ProcessManager(cfg)
     comp = args.component.lower()
+    verbose = getattr(args, "verbose", False)
     try:
         if comp == "ovms":
-            state = pm.start_ovms(wait_for_ready=args.wait, timeout_sec=args.timeout)
+            # Dynamic config bootstrap compatibility: initialize config.json if missing
+            if not cfg.config_json.exists():
+                init_model = cfg.model_name or cfg.default_model or "default"
+                init_path = cfg.model_path or str(cfg.root / "models" / init_model)
+                initial_json = {
+                    "model_config_list": [
+                        {"config": {"name": init_model, "base_path": init_path}}
+                    ]
+                }
+                atomic_write_json(cfg.config_json, initial_json)
+
+            state = pm.start_ovms(
+                wait_for_ready=args.wait,
+                timeout_sec=args.timeout,
+                verbose=verbose,
+            )
         elif comp in {"gateway", "proxy"}:
             state = pm.start_gateway(wait_for_ready=args.wait, timeout_sec=args.timeout)
         else:
@@ -422,6 +480,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_enable.add_argument("model_name", nargs="?", default=None, help="Model name to enable")
     p_enable.add_argument("--name", default=None, help="Model name alias")
     p_enable.add_argument("--path", default=None, help="Optional model directory path")
+    p_enable.add_argument("--task", default="text_generation", help="Model task type")
+    p_enable.add_argument("--device", default="GPU", help="Target accelerator device")
+    p_enable.add_argument("--performance-profile", default="Balanced", help="Performance profile")
     p_enable.add_argument("--config-path", default=None, help="Optional config path")
     p_enable.add_argument("--no-reload", action="store_true", help="Do not reload OVMS after updating config")
     p_enable.add_argument("--dry-run", action="store_true", help="Simulate without mutating config")
@@ -473,6 +534,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_start = subparsers.add_parser("start", help="Start runtime component (ovms|gateway)")
     p_start.add_argument("component", choices=["ovms", "gateway", "proxy"], help="Component to start")
     p_start.add_argument("--wait", action="store_true", default=True, help="Wait for readiness")
+    p_start.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
     p_start.add_argument("--timeout", type=int, default=60, help="Startup timeout in seconds")
     p_start.add_argument("--json", action="store_true", help="Output JSON")
 
@@ -505,7 +567,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     handlers = {
         "status": cmd_status,
         "list": cmd_list,
-        "native-list": cmd_list,
+        "native-list": cmd_native_list,
         "switch": cmd_switch,
         "configure": cmd_configure,
         "enable": cmd_enable,

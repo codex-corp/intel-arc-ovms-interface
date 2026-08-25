@@ -122,6 +122,44 @@ class Phase2ProcessAndReadinessTests(unittest.TestCase):
                 self.assertEqual(env.get("PYTHONIOENCODING"), "utf-8", "ProcessManager must enforce PYTHONIOENCODING=utf-8")
                 self.assertEqual(env.get("PYTHONUNBUFFERED"), "1", "ProcessManager must enforce PYTHONUNBUFFERED=1")
 
+    def test_process_manager_persistent_pid_file_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = RuntimeConfig(
+                root=root,
+                python_exe=Path(sys.executable),
+                ovms_dir=root / "ovms",
+                ovms_port=59123,
+                ovms_grpc_port=59124,
+                proxy_bind_host="127.0.0.1",
+                proxy_port=59125,
+                default_model="dummy",
+                model_name="dummy",
+                model_path="",
+                ovms_version="2026.3",
+            )
+
+            mgr1 = ProcessManager(cfg)
+            dummy_proc = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(10) # proxy_server.py"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                # Save PID to persistent state file
+                mgr1._save_pid("gateway", dummy_proc.pid)
+
+                # A new ProcessManager instance in another CLI invocation sees the PID file
+                mgr2 = ProcessManager(cfg)
+                self.assertEqual(dummy_proc.pid, mgr2._get_verified_owned_pid("gateway"))
+
+                # Stopping via mgr2 cleans up PID file
+                self.assertTrue(mgr2.stop_component("gateway"))
+                self.assertFalse(mgr2._pid_file_for("gateway").exists())
+            finally:
+                if dummy_proc.poll() is None:
+                    dummy_proc.kill()
+
 
 if __name__ == "__main__":
     unittest.main()

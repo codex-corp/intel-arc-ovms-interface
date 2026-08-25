@@ -99,6 +99,20 @@ class Phase5DownloaderTests(unittest.TestCase):
                     pull_model(cfg, "missing-weights", destination_override=root / "m")
                 self.assertIn("required binary weights (.bin/.gguf) were not found", str(ctx.exception))
 
+    def test_get_dir_size_mb_sums_all_files(self):
+        from tools.core.downloader import _get_dir_size_mb
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "file1.bin").write_bytes(b"\x00" * (1024 * 1024))  # 1 MB
+            (root / "file2.bin").write_bytes(b"\x00" * (2 * 1024 * 1024))  # 2 MB
+            sub = root / "subdir"
+            sub.mkdir()
+            (sub / "file3.bin").write_bytes(b"\x00" * (3 * 1024 * 1024))  # 3 MB
+
+            total_mb = _get_dir_size_mb(root)
+            self.assertAlmostEqual(6.0, total_mb, places=1)
+
 
 if __name__ == "__main__":
     unittest.main()

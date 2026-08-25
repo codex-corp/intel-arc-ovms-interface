@@ -14,8 +14,8 @@ from tools.core.manifest import discover_all_models, is_model_weights_ready, loa
 from tools.core.readiness import check_tcp_port, probe_ovms_readiness
 
 
-class Phase7EndToEndValidationTests(unittest.TestCase):
-    """End-to-end contract and integration validation across Windows + Intel Arc stack."""
+class Phase7IntegrationContractTests(unittest.TestCase):
+    """Integration and contract test suite validating Python Core services with temporary state/mocks."""
 
     def test_e2e_runtime_config_and_manifest_coherence(self):
         cfg = load_core_config()

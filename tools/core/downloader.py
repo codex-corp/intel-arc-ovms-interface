@@ -63,7 +63,6 @@ def _get_dir_size_mb(path: Path) -> float:
         for entry in path.rglob("*"):
             if entry.is_file():
                 total += entry.stat().st_size
-            return total / (1024 * 1024)
         return total / (1024 * 1024)
     except Exception:
         return 0.0
@@ -74,19 +73,26 @@ def pull_model(
     model_name: str,
     on_progress: Optional[Callable[[str], None]] = None,
     destination_override: Optional[Path] = None,
+    repository_path: Optional[Path] = None,
+    task: str = "text_generation",
+    device: str = "GPU",
+    performance_profile: str = "Balanced",
+    gguf_filename: Optional[str] = None,
+    overwrite: bool = False,
 ) -> Path:
     """
     Downloads and prepares an OpenVINO model.
     Primary: Native ovms.exe --pull engine.
-    Fallback: Hugging Face hub snapshot_download with live size monitoring.
+    Fallback: Direct Hugging Face hub snapshot_download with live size monitoring.
     """
     def log(msg: str) -> None:
         if on_progress:
             on_progress(msg)
 
-    catalog = load_manifest(config.manifest_path)
+    catalog = load_manifest(config.manifest_path) if config.manifest_path.exists() else {}
     entry = catalog.get(model_name)
     repo_id = entry.repo_id if entry else model_name
+    servable_name = entry.default_name if (entry and entry.default_name) else model_name
 
     # Determine destination folder
     if destination_override:
@@ -95,10 +101,13 @@ def pull_model(
         registry = load_registry(config.legacy_registry_path) if config.legacy_registry_path.exists() else {}
         dest_path = registry.get(model_name)
         if not dest_path:
-            dest_path = str(config.root / "models" / model_name)
+            dest_path = str(config.root / "models" / servable_name)
         dest_dir = Path(dest_path).resolve()
 
     dest_dir.mkdir(parents=True, exist_ok=True)
+    repo_dir = Path(repository_path).resolve() if repository_path else dest_dir.parent
+    repo_dir.mkdir(parents=True, exist_ok=True)
+
     log(f"Connecting to repository for '{model_name}' ({repo_id})...")
 
     # 1. Primary: Native OVMS Pull (ovms.exe --pull is authoritative)
@@ -113,10 +122,23 @@ def pull_model(
         cmd = [
             str(ovms_exe),
             "--pull",
-            repo_id,
-            "--model_repository_path",
-            str(dest_dir.parent),
+            "--source_model", str(repo_id),
+            "--model_repository_path", str(repo_dir),
+            "--model_name", str(servable_name),
+            "--target_device", str(device),
+            "--task", str(task),
         ]
+
+        if task == "text_generation":
+            cache_size = 2 if performance_profile == "Safe" else (8 if performance_profile == "Fast" else 4)
+            max_seqs = 2 if performance_profile == "Safe" else (8 if performance_profile == "Fast" else 4)
+            cmd.extend(["--cache_size", str(cache_size), "--max_num_seqs", str(max_seqs)])
+
+        if gguf_filename:
+            cmd.extend(["--gguf_filename", str(gguf_filename)])
+
+        if overwrite:
+            cmd.append("--overwrite_models")
 
         try:
             proc = subprocess.Popen(
@@ -178,8 +200,8 @@ def pull_model(
 
         # Compatibility fallback: if native OVMS was not used and graph.pbtxt is missing, generate fallback
         if not (dest_dir / "graph.pbtxt").exists():
-            device = entry.device if entry else "GPU"
-            fallback_legacy_graph_pbtxt_if_missing(dest_dir, device=device)
+            target_device = entry.device if entry else device
+            fallback_legacy_graph_pbtxt_if_missing(dest_dir, device=target_device)
 
     # 3. Weights Verification
     if not is_model_weights_ready(str(dest_dir)):

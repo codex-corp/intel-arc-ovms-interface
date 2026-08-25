@@ -21,7 +21,7 @@ from tools.core.config_engine import (
     rollback_config,
 )
 from tools.core.env_resolver import resolve_ovms_environment
-from tools.core.manifest import is_model_weights_ready
+from tools.core.manifest import is_model_weights_ready, load_manifest
 from tools.core.readiness import probe_ovms_readiness, wait_for_ovms_ready
 from tools.model_manager.env_config import update_env_file
 from tools.model_manager.model_registry import load_registry
@@ -82,6 +82,26 @@ class OvmsLifecycleService:
             "ovms_error": ovms.error,
         }
 
+    def native_list(self, repository_path: Optional[str] = None) -> Dict[str, Any]:
+        """Invokes native ovms.exe --list_models against model repository."""
+        repo_dir = Path(repository_path).resolve() if repository_path else self.config.root / "models"
+        ovms_exe = self.config.ovms_dir / "ovms.exe"
+        if ovms_exe.exists():
+            res = run_ovms_cli(self.config, ["--list_models", "--model_repository_path", str(repo_dir)])
+            return {
+                "native": True,
+                "exit_code": res.returncode,
+                "stdout": res.stdout,
+                "stderr": res.stderr,
+                "repository_path": str(repo_dir),
+            }
+        else:
+            return {
+                "native": False,
+                "message": "ovms.exe not available; listing local folders",
+                "repository_path": str(repo_dir),
+            }
+
     def switch_model(
         self,
         model_name: str,
@@ -99,7 +119,12 @@ class OvmsLifecycleService:
             resolved_path = self.config.model_path
 
         if not resolved_path:
-            raise ValueError(f"Unknown model '{model_name}'. Path not specified and not in registry.")
+            catalog = load_manifest(self.config.manifest_path) if self.config.manifest_path.exists() else {}
+            entry = catalog.get(model_name)
+            if entry and entry.default_name:
+                resolved_path = str(self.config.root / "models" / entry.default_name)
+            else:
+                resolved_path = str(self.config.root / "models" / model_name)
 
         if not Path(resolved_path).exists():
             raise FileNotFoundError(f"Model path does not exist on disk: {resolved_path}")
@@ -138,7 +163,7 @@ class OvmsLifecycleService:
             backup_config(self.config.config_json, self.config.backup_json)
         atomic_write_json(self.config.config_json, planned)
 
-        # Update config.env
+        # Update environment file
         if self.config.config_env.exists():
             update_env_file(
                 self.config.config_env,
@@ -198,10 +223,86 @@ class OvmsLifecycleService:
             f"Model '{model_name}' was configured, but OVMS did not report it ready within {timeout_sec}s. Rolled back."
         )
 
+    def configure_model(
+        self,
+        model_name: str,
+        model_path: str,
+        task: str = "text_generation",
+        device: str = "GPU",
+        performance_profile: str = "Balanced",
+        config_path: Optional[str] = None,
+        no_reload: bool = False,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """Executes native OVMS configure engine and updates local registry."""
+        resolved_path = Path(model_path).resolve()
+        if dry_run:
+            return {
+                "dry_run": True,
+                "action": "configure",
+                "model": model_name,
+                "path": str(resolved_path),
+                "task": task,
+                "device": device,
+            }
+
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"Model path does not exist on disk: {resolved_path}")
+
+        target_cfg_path = Path(config_path).resolve() if config_path else self.config.config_json
+        ovms_exe = self.config.ovms_dir / "ovms.exe"
+
+        native_configured = False
+        if ovms_exe.exists():
+            cache_size = 2 if performance_profile == "Safe" else (8 if performance_profile == "Fast" else 4)
+            max_seqs = 2 if performance_profile == "Safe" else (8 if performance_profile == "Fast" else 4)
+            args = [
+                "--configure",
+                "--model_path", str(resolved_path),
+                "--model_name", model_name,
+                "--task", task,
+                "--target_device", device,
+            ]
+            if task == "text_generation":
+                args.extend(["--cache_size", str(cache_size), "--max_num_seqs", str(max_seqs)])
+
+            res = run_ovms_cli(self.config, args)
+            if res.returncode == 0:
+                native_configured = True
+
+        # Ensure model is present in config.json
+        try:
+            current_cfg = load_json(target_cfg_path)
+        except Exception:
+            current_cfg = {}
+        new_cfg = enable_model_in_config(current_cfg, model_name, str(resolved_path))
+        if target_cfg_path.exists():
+            backup_config(target_cfg_path, self.config.backup_json)
+        atomic_write_json(target_cfg_path, new_cfg)
+        self._update_legacy_registry(model_name, str(resolved_path))
+
+        if not no_reload:
+            ovms_check = probe_ovms_readiness(self.config.ovms_port, client_host=self.config.client_host, timeout_sec=1.0)
+            if ovms_check.reachable:
+                reload_config(self.config.ovms_port)
+
+        return {
+            "changed": True,
+            "action": "configure",
+            "model": model_name,
+            "path": str(resolved_path),
+            "native": native_configured,
+            "message": f"Successfully configured model '{model_name}'.",
+        }
+
     def enable_model(
         self,
         model_name: str,
         model_path: Optional[str] = None,
+        config_path: Optional[str] = None,
+        task: str = "text_generation",
+        device: str = "GPU",
+        performance_profile: str = "Balanced",
         dry_run: bool = False,
         no_reload: bool = False,
     ) -> Dict[str, Any]:
@@ -218,16 +319,31 @@ class OvmsLifecycleService:
         if dry_run:
             return {"dry_run": True, "action": "enable", "model": model_name, "path": str(resolved_path)}
 
-        try:
-            current_cfg = load_json(self.config.config_json)
-        except Exception:
-            current_cfg = {}
+        target_cfg_path = Path(config_path).resolve() if config_path else self.config.config_json
+        ovms_exe = self.config.ovms_dir / "ovms.exe"
+        native_added = False
 
-        new_cfg = enable_model_in_config(current_cfg, model_name, str(resolved_path))
-        if self.config.config_json.exists():
-            backup_config(self.config.config_json, self.config.backup_json)
-        atomic_write_json(self.config.config_json, new_cfg)
-        self._update_legacy_registry(model_name, resolved_path)
+        if ovms_exe.exists() and Path(resolved_path).exists():
+            res = run_ovms_cli(self.config, [
+                "--add_to_config",
+                "--config_path", str(target_cfg_path),
+                "--model_name", model_name,
+                "--model_path", str(resolved_path),
+            ])
+            if res.returncode == 0:
+                native_added = True
+
+        if not native_added:
+            try:
+                current_cfg = load_json(target_cfg_path)
+            except Exception:
+                current_cfg = {}
+            new_cfg = enable_model_in_config(current_cfg, model_name, str(resolved_path))
+            if target_cfg_path.exists():
+                backup_config(target_cfg_path, self.config.backup_json)
+            atomic_write_json(target_cfg_path, new_cfg)
+
+        self._update_legacy_registry(model_name, str(resolved_path))
 
         if not no_reload:
             ovms_check = probe_ovms_readiness(
@@ -243,12 +359,14 @@ class OvmsLifecycleService:
             "action": "enable",
             "model": model_name,
             "path": str(resolved_path),
+            "native": native_added,
             "message": f"Enabled model '{model_name}' in config.",
         }
 
     def disable_model(
         self,
         model_name: str,
+        config_path: Optional[str] = None,
         dry_run: bool = False,
         no_reload: bool = False,
     ) -> Dict[str, Any]:
@@ -256,15 +374,28 @@ class OvmsLifecycleService:
         if dry_run:
             return {"dry_run": True, "action": "disable", "model": model_name}
 
-        try:
-            current_cfg = load_json(self.config.config_json)
-        except Exception:
-            current_cfg = {}
+        target_cfg_path = Path(config_path).resolve() if config_path else self.config.config_json
+        ovms_exe = self.config.ovms_dir / "ovms.exe"
+        native_removed = False
 
-        new_cfg = disable_model_in_config(current_cfg, model_name)
-        if self.config.config_json.exists():
-            backup_config(self.config.config_json, self.config.backup_json)
-        atomic_write_json(self.config.config_json, new_cfg)
+        if ovms_exe.exists():
+            res = run_ovms_cli(self.config, [
+                "--remove_from_config",
+                "--config_path", str(target_cfg_path),
+                "--model_name", model_name,
+            ])
+            if res.returncode == 0:
+                native_removed = True
+
+        if not native_removed:
+            try:
+                current_cfg = load_json(target_cfg_path)
+            except Exception:
+                current_cfg = {}
+            new_cfg = disable_model_in_config(current_cfg, model_name)
+            if target_cfg_path.exists():
+                backup_config(target_cfg_path, self.config.backup_json)
+            atomic_write_json(target_cfg_path, new_cfg)
 
         if not no_reload:
             ovms_check = probe_ovms_readiness(
@@ -279,10 +410,11 @@ class OvmsLifecycleService:
             "changed": True,
             "action": "disable",
             "model": model_name,
+            "native": native_removed,
             "message": f"Disabled model '{model_name}' in config.",
         }
 
-    def reload(self) -> Dict[str, Any]:
+    def reload(self, timeout_sec: int = 30, config_path: Optional[str] = None) -> Dict[str, Any]:
         """Triggers dynamic config reload on live OVMS instance."""
         ovms_check = probe_ovms_readiness(
             self.config.ovms_port,
@@ -295,16 +427,19 @@ class OvmsLifecycleService:
         ok = reload_config(self.config.ovms_port)
         return {"reloaded": ok, "message": "OVMS config reload accepted." if ok else "OVMS reload failed."}
 
-    def rollback(self) -> Dict[str, Any]:
+    def rollback(self, target_backup: Optional[str] = None, config_path: Optional[str] = None) -> Dict[str, Any]:
         """Restores last config.json and config.env backup."""
-        if not self.config.backup_json.exists():
-            raise FileNotFoundError(f"No backup found at {self.config.backup_json}")
+        backup_file = Path(target_backup).resolve() if target_backup else self.config.backup_json
+        target_file = Path(config_path).resolve() if config_path else self.config.config_json
 
-        rollback_config(self.config.backup_json, self.config.config_json)
-        cfg = load_json(self.config.config_json)
+        if not backup_file.exists():
+            raise FileNotFoundError(f"No backup found at {backup_file}")
+
+        rollback_config(backup_file, target_file)
+        cfg = load_json(target_file)
         name, model_path = extract_current_model(cfg)
 
-        if self.config.config_env.exists():
+        if self.config.config_env.exists() and name:
             update_env_file(self.config.config_env, {"MODEL_NAME": name, "MODEL_PATH": model_path})
 
         ovms_check = probe_ovms_readiness(

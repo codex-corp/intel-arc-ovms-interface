@@ -182,6 +182,42 @@ class Phase3LifecycleServiceTests(unittest.TestCase):
             self.assertEqual("v1", restored_json["model_config_list"][0]["config"]["name"])
             self.assertIn("MODEL_NAME=v1", (root / "config.env").read_text(encoding="utf-8"))
 
+    def test_enable_model_with_real_manifest_no_missing_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest_file = root / "models_manifest.json"
+            manifest_file.write_text(
+                json.dumps({
+                    "version": "1.0",
+                    "models": {
+                        "phi-4": {"repo_id": "OpenVINO/phi-4-int4-ov", "default_name": "phi-4"},
+                    }
+                }),
+                encoding="utf-8",
+            )
+            config_json = root / "config.json"
+            config_json.write_text(json.dumps({"model_config_list": []}), encoding="utf-8")
+
+            cfg = RuntimeConfig(
+                root=root,
+                python_exe=Path("python.exe"),
+                ovms_dir=root / "ovms",
+                ovms_port=59000,
+                ovms_grpc_port=59001,
+                proxy_bind_host="127.0.0.1",
+                proxy_port=59002,
+                default_model="phi-4",
+                model_name="phi-4",
+                model_path="",
+                ovms_version="2026.3",
+            )
+
+            service = OvmsLifecycleService(cfg)
+            # Call enable_model resolving from manifest without error
+            res = service.enable_model("phi-4", dry_run=False, no_reload=True)
+            self.assertTrue(res["changed"])
+            self.assertEqual("phi-4", res["model"])
+
 
 if __name__ == "__main__":
     unittest.main()

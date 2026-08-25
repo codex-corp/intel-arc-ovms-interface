@@ -74,7 +74,19 @@ def wait_for_ovms_ready(
 def probe_gateway_readiness(
     proxy_port: int,
     client_host: str = "127.0.0.1",
-    timeout_sec: float = 1.0,
+    timeout_sec: float = 2.0,
 ) -> bool:
-    """Checks if the OpenAI Gateway proxy is reachable."""
-    return check_tcp_port(client_host, proxy_port, timeout_sec=timeout_sec)
+    """Checks if the OpenAI Gateway proxy is reachable and responding with application-level HTTP 200."""
+    target_host = "127.0.0.1" if client_host in {"0.0.0.0", "", "::", "localhost"} else client_host
+    for path in ["/v3/models", "/v1/models"]:
+        url = f"http://{target_host}:{proxy_port}{path}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "OvmsStudioProbe/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if isinstance(data, dict) and "data" in data:
+                        return True
+        except Exception:
+            continue
+    return False

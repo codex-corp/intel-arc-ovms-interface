@@ -162,9 +162,9 @@ def run_management_command(
     service = _get_lifecycle_service(config)
 
     try:
-        if command == "switch" or command == "enable":
+        if command == "switch":
             if not model:
-                raise ValueError("Model name is required for switch/enable.")
+                raise ValueError("Model name is required for switch.")
             res = service.switch_model(
                 model_name=model,
                 model_path=model_path,
@@ -173,6 +173,21 @@ def run_management_command(
             stdout = json.dumps(res, indent=2)
             return subprocess.CompletedProcess(
                 args=["python", "-m", "tools.core.lifecycle", command, model],
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
+
+        elif command == "enable":
+            if not model:
+                raise ValueError("Model name is required for enable.")
+            res = service.enable_model(
+                model_name=model,
+                model_path=model_path,
+            )
+            stdout = json.dumps(res, indent=2)
+            return subprocess.CompletedProcess(
+                args=["python", "-m", "tools.core.lifecycle", "enable", model],
                 returncode=0,
                 stdout=stdout,
                 stderr="",

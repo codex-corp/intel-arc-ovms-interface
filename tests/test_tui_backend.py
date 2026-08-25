@@ -85,6 +85,30 @@ class TuiBackendTests(unittest.TestCase):
             downloaded = get_downloaded_models(registry)
             self.assertEqual(["installed-model"], downloaded)
 
+    def test_run_management_command_enable_preserves_other_models(self):
+        import json
+        from tools.tui.backend import run_management_command
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_json = root / "config.json"
+            initial_data = {
+                "model_config_list": [
+                    {"config": {"name": "model-1", "base_path": "/path/1"}},
+                ]
+            }
+            config_json.write_text(json.dumps(initial_data), encoding="utf-8")
+
+            cfg = load_runtime_config(root)
+
+            # Invoke TUI enable command
+            res = run_management_command(cfg, "enable", "model-2", model_path="/path/2")
+            self.assertEqual(0, res.returncode)
+
+            updated = json.loads(config_json.read_text(encoding="utf-8"))
+            names = [m["config"]["name"] for m in updated["model_config_list"]]
+            self.assertEqual(["model-1", "model-2"], names, "TUI enable must add model without collapsing existing models")
+
 
 if __name__ == "__main__":
     unittest.main()
