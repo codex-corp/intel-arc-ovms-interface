@@ -73,13 +73,13 @@ def cmd_status(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         _format_output(status_data, as_json=True)
     else:
         print("=" * 60)
-        print("🖥️  INTEL ARC AI STUDIO - RUNTIME STATUS")
+        print("INTEL ARC AI STUDIO - RUNTIME STATUS")
         print("=" * 60)
-        print(f"• OVMS Service:       {'🟢 ONLINE' if status_data['ovms']['reachable'] else '🔴 OFFLINE'} (Port {cfg.ovms_port}, State: {ovms_proc_state.value})")
-        print(f"• Gateway Proxy:      {'🟢 ONLINE' if status_data['gateway']['reachable'] else '⚪ STANDBY'} (Port {cfg.proxy_port}, State: {gw_proc_state.value})")
-        print(f"• Active Model:       {status_data['models']['active_model'] or 'None'}")
-        print(f"• In-Memory Models:   {', '.join(status_data['ovms']['loaded_models']) or 'None'}")
-        print(f"• Installed on Disk:  {len(downloaded)} / {len(models)} models ready")
+        print(f"* OVMS Service:       {'ONLINE' if status_data['ovms']['reachable'] else 'OFFLINE'} (Port {cfg.ovms_port}, State: {ovms_proc_state.value})")
+        print(f"* Gateway Proxy:      {'ONLINE' if status_data['gateway']['reachable'] else 'STANDBY'} (Port {cfg.proxy_port}, State: {gw_proc_state.value})")
+        print(f"* Active Model:       {status_data['models']['active_model'] or 'None'}")
+        print(f"* In-Memory Models:   {', '.join(status_data['ovms']['loaded_models']) or 'None'}")
+        print(f"* Installed on Disk:  {len(downloaded)} / {len(models)} models ready")
         print("=" * 60)
 
     return 0
@@ -148,7 +148,7 @@ def cmd_switch(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": "switch command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ switch command requires a model name argument.", file=sys.stderr)
+            print("[ERROR] switch command requires a model name argument.", file=sys.stderr)
         return 1
 
     try:
@@ -165,7 +165,7 @@ def cmd_switch(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Switch failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Switch failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -175,14 +175,14 @@ def cmd_configure(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": "configure command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ configure command requires a model name argument.", file=sys.stderr)
+            print("[ERROR] configure command requires a model name argument.", file=sys.stderr)
         return 1
 
     if not args.path:
         if args.json:
             _format_output({"error": "configure command requires --path argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ configure command requires --path argument.", file=sys.stderr)
+            print("[ERROR] configure command requires --path argument.", file=sys.stderr)
         return 1
 
     service = OvmsLifecycleService(cfg)
@@ -203,7 +203,7 @@ def cmd_configure(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Configure failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Configure failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -213,7 +213,7 @@ def cmd_enable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": "enable command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ enable command requires a model name argument.", file=sys.stderr)
+            print("[ERROR] enable command requires a model name argument.", file=sys.stderr)
         return 1
 
     service = OvmsLifecycleService(cfg)
@@ -234,7 +234,7 @@ def cmd_enable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Enable failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Enable failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -244,7 +244,7 @@ def cmd_disable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": "disable command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ disable command requires a model name argument.", file=sys.stderr)
+            print("[ERROR] disable command requires a model name argument.", file=sys.stderr)
         return 1
 
     service = OvmsLifecycleService(cfg)
@@ -261,7 +261,7 @@ def cmd_disable(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Disable failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Disable failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -271,7 +271,7 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": "pull command requires a model name argument.", "status": "failed"}, as_json=True)
         else:
-            print("❌ pull command requires a model name argument.", file=sys.stderr)
+            print("[ERROR] pull command requires a model name argument.", file=sys.stderr)
         return 1
 
     dest_val = getattr(args, "dest", None) or getattr(args, "path", None)
@@ -281,7 +281,7 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
 
     def log(msg: str) -> None:
         if not args.json:
-            print(f"⏳ {msg}")
+            print(f"[PROGRESS] {msg}")
 
     try:
         dest_dir = pull_model(
@@ -303,13 +303,13 @@ def cmd_pull(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
                 "destination": str(dest_dir),
             }, as_json=True)
         else:
-            print(f"✅ Successfully pulled and verified model '{target_model}' at: {dest_dir}")
+            print(f"[OK] Successfully pulled and verified model '{target_model}' at: {dest_dir}")
         return 0
     except Exception as exc:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Pull failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Pull failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -325,7 +325,7 @@ def cmd_reload(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Reload failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Reload failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -341,7 +341,7 @@ def cmd_rollback(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         if args.json:
             _format_output({"error": str(exc), "status": "failed"}, as_json=True)
         else:
-            print(f"❌ Rollback failed: {exc}", file=sys.stderr)
+            print(f"[ERROR] Rollback failed: {exc}", file=sys.stderr)
         return 1
 
 
@@ -371,9 +371,9 @@ def cmd_test_ready(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         }, as_json=True)
     else:
         if ready:
-            print(f"✅ OVMS is READY on port {port}. Models: {status_res.models}")
+            print(f"[OK] OVMS is READY on port {port}. Models: {status_res.models}")
         else:
-            print(f"❌ OVMS is NOT ready on port {port}. Error: {status_res.error}", file=sys.stderr)
+            print(f"[ERROR] OVMS is NOT ready on port {port}. Error: {status_res.error}", file=sys.stderr)
 
     return 0 if ready else 1
 
@@ -403,19 +403,19 @@ def cmd_start(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         elif comp in {"gateway", "proxy"}:
             state = pm.start_gateway(wait_for_ready=args.wait, timeout_sec=args.timeout)
         else:
-            print(f"❌ Unknown component: {comp}. Must be 'ovms' or 'gateway'.", file=sys.stderr)
+            print(f"[ERROR] Unknown component: {comp}. Must be 'ovms' or 'gateway'.", file=sys.stderr)
             return 1
 
         if args.json:
             _format_output({"component": comp, "state": state.value}, as_json=True)
         else:
-            print(f"✅ Started {comp.upper()} -> {state.value}")
+            print(f"[OK] Started {comp.upper()} -> {state.value}")
         return 0
     except Exception as exc:
         if args.json:
             _format_output({"component": comp, "error": str(exc)}, as_json=True)
         else:
-            print(f"❌ Could not start {comp}: {exc}", file=sys.stderr)
+            print(f"[ERROR] Could not start {comp}: {exc}", file=sys.stderr)
         return 1
 
 
@@ -428,9 +428,9 @@ def cmd_stop(cfg: RuntimeConfig, args: argparse.Namespace) -> int:
         _format_output({"component": comp, "stopped": stopped}, as_json=True)
     else:
         if stopped:
-            print(f"✅ Stopped owned {comp.upper()} process.")
+            print(f"[OK] Stopped owned {comp.upper()} process.")
         else:
-            print(f"ℹ️ No owned running process found for {comp.upper()}.")
+            print(f"[INFO] No owned running process found for {comp.upper()}.")
     return 0
 
 
@@ -582,7 +582,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     handler = handlers.get(args.command)
     if not handler:
-        print(f"❌ Unknown command: {args.command}", file=sys.stderr)
+        print(f"[ERROR] Unknown command: {args.command}", file=sys.stderr)
         return 1
 
     return handler(cfg, args)
