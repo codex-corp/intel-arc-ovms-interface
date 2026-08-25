@@ -72,7 +72,7 @@ THEMES_LIST = [
 
 
 class ArcAiApp(App):
-    TITLE = "⚡ Intel Arc AI Studio"
+    TITLE = "Intel Arc AI Studio"
     SUB_TITLE = "Local OpenVINO Model Server"
     CSS_PATH = "app.tcss"
 
