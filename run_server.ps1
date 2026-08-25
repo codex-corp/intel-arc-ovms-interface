@@ -29,7 +29,7 @@ $OvmsReady = ($LASTEXITCODE -eq 0)
 
 if ($OvmsReady) {
     Write-Host ""
-    Write-Host "✅ Server is already running on port $Port" -ForegroundColor Green
+    Write-Host "[OK] Server is already running on port $Port" -ForegroundColor Green
     Write-Host ""
     Write-Host "IDE Configuration Details:" -ForegroundColor Cyan
     Write-Host "--------------------------" -ForegroundColor Gray
@@ -43,15 +43,15 @@ if ($OvmsReady) {
         $ProxyPort = $PROXY_PORT
         $ProxyRunning = Test-NetConnection -ComputerName localhost -Port $ProxyPort -InformationLevel Quiet -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         if ($ProxyRunning) {
-            Write-Host "✅ Proxy is already running on port $ProxyPort" -ForegroundColor Green
+            Write-Host "[OK] Proxy is already running on port $ProxyPort" -ForegroundColor Green
         }
         else {
             if ($ShowProxy) {
-                Write-Host "🚀 Starting Proxy (new window)..." -ForegroundColor Cyan
+                Write-Host "[START] Starting Proxy (new window)..." -ForegroundColor Cyan
                 Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Normal
             }
             else {
-                Write-Host "🚀 Starting Proxy (minimized)..." -ForegroundColor Cyan
+                Write-Host "[START] Starting Proxy (minimized)..." -ForegroundColor Cyan
                 Start-Process powershell.exe -ArgumentList "-NoExit", "-File", "$PSScriptRoot\run_ide_proxy.ps1" -WindowStyle Hidden
             }
         }
@@ -70,7 +70,7 @@ if ($PortInUse) {
 
 # If not running, launch it
 Write-Host ""
-Write-Host "🚀 Starting AI Server for IDE Integration..." -ForegroundColor Cyan
+Write-Host "[START] Starting AI Server for IDE Integration..." -ForegroundColor Cyan
 Write-Host "   Model: $ModelName (Intel Arc A750)" -ForegroundColor DarkGray
 
 # Optional Proxy Launch
@@ -87,7 +87,7 @@ if ($Proxy) {
 
 # Display Config for User Copy-Paste
 Write-Host ""
-Write-Host "📋 Configure your IDE (PhpStorm / VS Code) with:" -ForegroundColor Yellow
+Write-Host "Configure your IDE (PhpStorm / VS Code) with:" -ForegroundColor Yellow
 Write-Host "   Base URL:   $BaseUrl" -ForegroundColor White
 Write-Host "   API Key:    sk-dummy" -ForegroundColor White
 Write-Host "   Model:      $ModelName" -ForegroundColor White
