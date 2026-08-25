@@ -4,8 +4,8 @@ import asyncio
 from typing import Dict, List
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, DataTable, Footer, Header, Input, Markdown, Select, Static, TabbedContent, TabPane
+from textual.containers import Horizontal, VerticalScroll
+from textual.widgets import Button, DataTable, Footer, Header, Input, Select, Static, TabbedContent, TabPane
 
 from tools.tui.backend import (
     RuntimeConfig,
@@ -93,8 +93,7 @@ class ArcAiApp(App):
 
     def action_clear_chat(self) -> None:
         self.messages.clear()
-        container = self.query_one("#chat-scroll", VerticalScroll)
-        container.remove_children()
+        self.query_one("#chat-scroll", VerticalScroll).remove_children()
 
     async def _refresh_runtime(self) -> None:
         status = await asyncio.to_thread(get_runtime_status, self.config)
@@ -180,8 +179,8 @@ class ArcAiApp(App):
 
         container = self.query_one("#chat-scroll", VerticalScroll)
         await container.mount(Static(f"You\n{text}", classes="chat-user"))
-        assistant_widget = Markdown("_Generating..._", classes="chat-assistant")
         reasoning_widget = Static("", classes="chat-reasoning")
+        assistant_widget = Static("Generating...", classes="chat-assistant")
         await container.mount(reasoning_widget, assistant_widget)
         container.scroll_end(animate=False)
 
@@ -192,18 +191,17 @@ class ArcAiApp(App):
             async for delta in self.chat_client.stream_chat(model, self.messages):
                 if delta.reasoning:
                     reasoning += delta.reasoning
-                    preview = reasoning[-1200:]
-                    reasoning_widget.update(f"Thinking: {preview}")
+                    reasoning_widget.update(f"Thinking: {reasoning[-1200:]}")
                 if delta.content:
                     answer += delta.content
-                    await assistant_widget.update(answer)
+                    assistant_widget.update(answer)
                     container.scroll_end(animate=False)
             if not answer:
-                await assistant_widget.update("_No content returned._")
+                assistant_widget.update("No content returned.")
             else:
                 self.messages.append({"role": "assistant", "content": answer})
         except Exception as exc:
-            await assistant_widget.update(f"**Request failed:** `{exc}`")
+            assistant_widget.update(f"Request failed: {exc}")
             self.notify("Chat request failed.", severity="error")
         finally:
             input_widget.disabled = False
