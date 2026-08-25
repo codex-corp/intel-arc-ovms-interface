@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Set
 
 from textual.app import App, ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
-from textual.theme import Theme
 from textual.widgets import Button, DataTable, Footer, Header, Select, Static, TabbedContent, TabPane, TextArea
 
 from tools.tui.backend import (
@@ -20,70 +20,31 @@ from tools.tui.backend import (
     start_runtime_component,
 )
 from tools.tui.chat_client import ChatClient
-
-# Curated Intel Arc Themes
-THEMES_LIST = [
-    Theme(
-        name="arc-cyberpunk",
-        primary="#00c7fd",
-        secondary="#0071c5",
-        accent="#38bdf8",
-        foreground="#f1f5f9",
-        background="#080c14",
-        surface="#0b1120",
-        panel="#111c33",
-        boost="#0f1d3a",
-        success="#10b981",
-        warning="#f59e0b",
-        error="#ef4444",
-        dark=True,
-    ),
-    Theme(
-        name="arc-titan",
-        primary="#38bdf8",
-        secondary="#0284c7",
-        accent="#a855f7",
-        foreground="#e2e8f0",
-        background="#0f172a",
-        surface="#1e293b",
-        panel="#334155",
-        boost="#1e3a5f",
-        success="#22c55e",
-        warning="#eab308",
-        error="#f43f5e",
-        dark=True,
-    ),
-    Theme(
-        name="arc-emerald",
-        primary="#10b981",
-        secondary="#059669",
-        accent="#00c7fd",
-        foreground="#ecfdf5",
-        background="#022c22",
-        surface="#064e3b",
-        panel="#065f46",
-        boost="#047857",
-        success="#34d399",
-        warning="#fbbf24",
-        error="#f87171",
-        dark=True,
-    ),
-]
+from tools.tui.theme import CURATED_THEMES, pill, pill_markup
+from tools.tui.widgets.chat_widgets import (
+    PlanCard,
+    TerminalToolCard,
+    ThoughtCard,
+    ToolCallHeader,
+    UserMessageCard,
+)
 
 
 class ArcAiApp(App):
-    TITLE = "Intel Arc AI Studio"
+    TITLE = "Toad - Intel Arc AI Studio"
     SUB_TITLE = "Local OpenVINO Model Server"
     CSS_PATH = "app.tcss"
 
     BINDINGS = [
-        ("ctrl+r", "refresh", "Refresh Status"),
-        ("ctrl+l", "clear_chat", "Clear Chat"),
-        ("ctrl+t", "toggle_theme", "Switch Theme"),
-        ("ctrl+q", "quit", "Quit Studio"),
+        ("ctrl+f", "focus_input", "Focus"),
+        ("ctrl+t", "toggle_theme", "Theme"),
+        ("ctrl+l", "clear_chat", "Clear"),
+        ("ctrl+r", "refresh", "Refresh"),
+        ("ctrl+q", "quit", "Quit"),
     ]
 
     THEME_NAMES = [
+        "toad-dark",
         "arc-cyberpunk",
         "catppuccin-mocha",
         "tokyo-night",
@@ -93,7 +54,6 @@ class ArcAiApp(App):
         "monokai",
         "rose-pine",
         "arc-titan",
-        "arc-emerald",
         "textual-dark",
     ]
 
@@ -106,16 +66,13 @@ class ArcAiApp(App):
         self._downloaded_models: Set[str] = set()
         self._loaded_models: Set[str] = set()
         self._active_model: str = ""
-        self._theme_index = 3
+        self._theme_index = 0
 
     def on_mount(self) -> None:
-        for custom_theme in THEMES_LIST:
+        for custom_theme in CURATED_THEMES:
             self.register_theme(custom_theme)
-        self.theme = "dracula"
-        try:
-            self._theme_index = self.THEME_NAMES.index("dracula")
-        except ValueError:
-            self._theme_index = 0
+        self.theme = "toad-dark"
+        self._theme_index = 0
 
         table = self.query_one("#models-table", DataTable)
         table.add_columns("Status", "Model Identifier", "Local Model Path", "State Hint")
@@ -133,18 +90,33 @@ class ArcAiApp(App):
         with TabbedContent(initial="chat"):
             with TabPane("💬 Chat Studio", id="chat"):
                 yield VerticalScroll(id="chat-scroll")
+
+                # Toad-style Prompt Container
                 with Vertical(id="chat-compose-container"):
-                    yield TextArea(
-                        placeholder="Type or paste your prompt here... (Press Ctrl+Enter or click Send)",
-                        id="chat-input",
-                        show_line_numbers=False,
-                    )
-                    with Horizontal(id="chat-compose-toolbar"):
-                        with Horizontal(id="chat-compose-left"):
-                            yield Select([], prompt="Select Model", id="chat-model", allow_blank=True)
-                        with Horizontal(id="chat-compose-right"):
-                            yield Button("🧹 Clear", id="clear-chat-btn")
-                            yield Button("➤ Send", id="send", variant="primary")
+                    with Horizontal(id="chat-input-row"):
+                        yield Static("❯", id="chat-prompt-glyph")
+                        yield TextArea(
+                            placeholder="What would you like to do? (Press Enter / Ctrl+Enter to send)",
+                            id="chat-input",
+                            show_line_numbers=False,
+                        )
+                    with Horizontal(id="prompt-shortcuts-row"):
+                        yield Static(
+                            f"{pill_markup('! shell', '#21222c', '#8be9fd')}  {pill_markup('/ commands', '#21222c', '#bd93f9')}  {pill_markup('@ files', '#21222c', '#50fa7b')}",
+                            id="prompt-shortcuts-text",
+                        )
+
+                # Info Bar matching Toad's #info-container
+                with Horizontal(id="info-container"):
+                    yield Static(pill_markup("Intel Arc LLM", "#bd93f9", "#1e1f29"), id="info-agent-pill")
+                    yield Static(f" {self.config.root}", id="info-path-text")
+                    yield Static(pill_markup("Default", "#21222c", "#8be9fd"), id="info-mode-pill")
+
+                # Model Selector & Control Toolbar
+                with Horizontal(id="chat-model-toolbar"):
+                    yield Select([], prompt="Select Model", id="chat-model", allow_blank=True)
+                    yield Button("🧹 Clear", id="clear-chat-btn")
+                    yield Button("➤ Send", id="send", variant="primary")
 
             with TabPane("📦 Model Manager", id="models"):
                 with Vertical(id="models-container"):
@@ -169,6 +141,12 @@ class ArcAiApp(App):
                     yield Button("🔄 Refresh All", id="refresh-status")
 
         yield Footer()
+
+    def action_focus_input(self) -> None:
+        try:
+            self.query_one("#chat-input", TextArea).focus()
+        except Exception:
+            pass
 
     def action_refresh(self) -> None:
         self._refresh_runtime(preserve_action_output=False)
@@ -224,6 +202,14 @@ class ArcAiApp(App):
             pill_gateway.add_class("offline")
 
         pill_model.update(f"🧠 MODEL: {active_model or 'None'}")
+
+        # Update Info Bar pill
+        try:
+            info_pill = self.query_one("#info-agent-pill", Static)
+            model_label = active_model or "Intel Arc LLM"
+            info_pill.update(pill_markup(model_label, "#bd93f9", "#1e1f29"))
+        except Exception:
+            pass
 
         # System Dashboard Cards
         card_ovms = self.query_one("#card-ovms", Static)
@@ -384,10 +370,13 @@ class ArcAiApp(App):
                 )
 
     async def on_key(self, event) -> None:
-        if event.key in {"ctrl+enter", "ctrl+j"}:
+        if event.key in {"enter", "ctrl+enter", "ctrl+j"}:
             try:
                 chat_input = self.query_one("#chat-input", TextArea)
                 if self.focused == chat_input:
+                    # If shift is held or multiline intended, allow default
+                    if event.key == "shift+enter":
+                        return
                     event.prevent_default()
                     event.stop()
                     await self._submit_chat()
@@ -430,7 +419,9 @@ class ArcAiApp(App):
         send_button = self.query_one("#send", Button)
         send_button.disabled = True
 
-        # Animating Send Button with AI Spinner
+        streaming_active = True
+
+        # Animating Send Button
         async def run_spinner() -> None:
             symbols = ["✦", "✧", "✶", "✷", "✸", "✹", "✺"]
             idx = 0
@@ -439,29 +430,21 @@ class ArcAiApp(App):
                 idx += 1
                 await asyncio.sleep(0.12)
 
-        streaming_active = True
         spinner_task = asyncio.create_task(run_spinner())
-
         container = self.query_one("#chat-scroll", VerticalScroll)
         now_str = datetime.now().strftime("%H:%M:%S")
 
-        # User message bubble
-        user_card = Static(text, classes="chat-user-card")
-        user_card.border_title = "🧑 YOU"
-        user_card.border_subtitle = now_str
+        # Mount User Message using Toad-styled UserMessageCard
+        user_card = UserMessageCard(text, timestamp=now_str)
         await container.mount(user_card)
 
-        # Reasoning block (collapsible thought stream)
-        reasoning_widget = Static("", classes="chat-reasoning-box")
-        reasoning_widget.border_title = "🧠 THOUGHT PROCESS"
-        reasoning_widget.display = False
+        # Thought Process (collapsible / distinct thought card)
+        thought_widget = ThoughtCard("")
+        thought_widget.display = False
 
-        # Assistant response card
+        # Assistant response widget
         assistant_card = Static("✦ Generating response...", classes="chat-assistant-card")
-        assistant_card.border_title = f"✦ {model.upper()}"
-        assistant_card.border_subtitle = "Streaming..."
-
-        await container.mount(reasoning_widget, assistant_card)
+        await container.mount(thought_widget, assistant_card)
         container.scroll_end(animate=False)
 
         self.messages.append({"role": "user", "content": text})
@@ -472,9 +455,9 @@ class ArcAiApp(App):
             async for delta in self.chat_client.stream_chat(model, self.messages):
                 if delta.reasoning:
                     reasoning += delta.reasoning
-                    if not reasoning_widget.display:
-                        reasoning_widget.display = True
-                    reasoning_widget.update(reasoning)
+                    if not thought_widget.display:
+                        thought_widget.display = True
+                    thought_widget.update(reasoning)
                     container.scroll_end(animate=False)
 
                 if delta.content:
@@ -487,10 +470,8 @@ class ArcAiApp(App):
             else:
                 self.messages.append({"role": "assistant", "content": answer})
 
-            assistant_card.border_subtitle = datetime.now().strftime("%H:%M:%S")
         except Exception as exc:
             assistant_card.update(f"[bold red]❌ Request failed:[/] {exc}")
-            assistant_card.border_subtitle = "Error"
             self.notify(f"Generation error: {exc}", severity="error", title="Chat Error")
         finally:
             streaming_active = False

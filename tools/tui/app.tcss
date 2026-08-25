@@ -12,10 +12,6 @@ Header {
     text-style: bold;
 }
 
-HeaderIcon {
-    color: $primary;
-}
-
 HeaderTitle {
     color: $text;
     text-style: bold;
@@ -30,35 +26,32 @@ Footer {
 
 /* Top Live Telemetry Bar */
 #top-bar {
-    height: 4;
+    height: 3;
     background: $surface;
     padding: 0 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
+    align: left middle;
 }
 
 .status-pill {
-    height: 3;
-    width: 1fr;
+    height: 1;
+    width: auto;
     background: $panel;
-    border: round $border;
     padding: 0 1;
     content-align: center middle;
     text-style: bold;
-    margin: 0 1;
+    margin: 0 1 0 0;
 }
 
 .status-pill.online {
-    border: round $success;
     color: $success;
 }
 
 .status-pill.offline {
-    border: round $error;
     color: $error;
 }
 
 .status-pill.accent {
-    border: round $accent;
     color: $accent;
 }
 
@@ -68,12 +61,12 @@ TabbedContent {
 }
 
 TabPane {
-    padding: 1;
+    padding: 0 1;
 }
 
 Tabs {
     background: $surface;
-    border-bottom: solid $primary;
+    border-bottom: solid $secondary 50%;
     padding: 0 1;
 }
 
@@ -88,56 +81,121 @@ Tab.-active {
     background: $panel;
 }
 
-/* Chat Section */
+/* Chat Canvas & Stream Area */
 #chat-scroll {
     height: 1fr;
     background: $background;
-    border: round $border;
-    padding: 1;
-    margin-bottom: 1;
-    scrollbar-size: 1 1;
+    border: none;
+    padding: 1 1 0 1;
+    margin-bottom: 0;
+    scrollbar-size-vertical: 1;
 }
 
-.chat-user-card {
+/* User Message Card */
+.user-msg-card {
     margin: 1 0;
-    padding: 1;
-    background: $boost;
-    border: round $primary;
+    padding: 0 1;
+    background: $boost 35%;
+    border-left: outer $secondary;
     color: $text;
+    height: auto;
 }
 
+/* Assistant Message Card */
 .chat-assistant-card {
     margin: 1 0;
-    padding: 1;
-    background: $panel;
-    border: round $accent;
+    padding: 0 1;
+    background: transparent;
+    border: none;
     color: $text;
+    height: auto;
 }
 
-.chat-reasoning-box {
-    margin: 0 0 1 0;
-    padding: 1;
-    background: $surface;
-    border: dashed $warning;
+/* Tool Invocation Header (▶ 🔧 Find files ✓) */
+.tool-call-header {
+    margin: 1 0 0 0;
+    padding: 0;
     color: $text-muted;
+    height: auto;
 }
 
-/* Gemini-style Floating Chat Compose Card */
+/* Terminal Tool Box (Matching Toad's TerminalTool with Green Panel Border) */
+.terminal-tool-card {
+    height: auto;
+    border: panel $success;
+    border-title-color: $success;
+    border-title-style: bold;
+    background: $success 7%;
+    color: $foreground;
+    padding: 0 1;
+    margin: 0 0 1 0;
+}
+
+.terminal-tool-card.-error {
+    border: panel $error;
+    border-title-color: $error;
+    background: $error 7%;
+}
+
+/* Plan / Task Tracking Card (Matching Toad's Plan Widget) */
+.plan-card {
+    height: auto;
+    border-top: ascii $secondary;
+    border-bottom: ascii $secondary;
+    border-left: blank $secondary;
+    border-right: wide $secondary;
+    border-title-color: $secondary;
+    border-title-style: bold;
+    background: black 15%;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+/* Thought / Reasoning Stream */
+.thought-card {
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: $surface 60%;
+    border: dashed $warning 60%;
+    color: $text-muted;
+    height: auto;
+}
+
+/* Toad-style Prompt Container */
 #chat-compose-container {
     height: auto;
-    background: transparent;
-    border: round $primary;
-    padding: 0 1 1 1;
-    margin-top: 1;
+    background: black 15%;
+    border: round $border;
+    padding: 0 1;
+    margin: 0 0 0 0;
+}
+
+#chat-compose-container:focus-within {
+    border: round $secondary;
+}
+
+#chat-input-row {
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    align: left top;
+}
+
+#chat-prompt-glyph {
+    color: $secondary;
+    width: 2;
+    text-style: bold;
+    padding-top: 0;
 }
 
 #chat-input {
     width: 1fr;
-    height: 4;
-    max-height: 8;
+    height: auto;
+    min-height: 3;
+    max-height: 7;
     background: transparent;
     border: none;
-    padding: 0 1;
+    padding: 0;
     color: $text;
 }
 
@@ -146,25 +204,50 @@ Tab.-active {
     background: transparent;
 }
 
-#chat-compose-toolbar {
-    height: 3;
-    align: left middle;
-}
-
-#chat-compose-left {
-    height: 3;
-    width: 1fr;
-    align: left middle;
-}
-
-#chat-compose-right {
-    height: 3;
-    width: auto;
+#prompt-shortcuts-row {
+    height: 1;
     align: right middle;
+    margin-bottom: 0;
+}
+
+#prompt-shortcuts-text {
+    color: $text-muted;
+    text-align: right;
+    width: 1fr;
+}
+
+/* Info Bar Below Prompt (Matching Toad's #info-container) */
+#info-container {
+    height: 1;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    align: left middle;
+}
+
+#info-agent-pill {
+    width: auto;
+    margin-right: 1;
+}
+
+#info-path-text {
+    width: 1fr;
+    color: $text-muted;
+}
+
+#info-mode-pill {
+    width: auto;
+    text-align: right;
+}
+
+/* Model Selector Toolbar */
+#chat-model-toolbar {
+    height: 3;
+    margin-top: 0;
+    align: left middle;
 }
 
 #chat-model {
-    width: 22;
+    width: 30;
     height: 3;
     border: dashed $border;
     background: transparent;
@@ -172,20 +255,7 @@ Tab.-active {
 }
 
 #chat-model:hover {
-    border: dashed $primary;
-}
-
-SelectCurrent {
-    background: transparent;
-    border: none;
-    padding: 0 1;
-}
-
-#compose-device-chip {
-    color: $accent;
-    background: transparent;
-    padding: 0 1;
-    text-style: bold;
+    border: dashed $secondary;
 }
 
 #clear-chat-btn {
@@ -198,95 +268,63 @@ SelectCurrent {
 
 #clear-chat-btn:hover {
     border: dashed $warning;
-    color: $warning;
-    background: transparent;
 }
 
 #send {
-    min-width: 9;
-    border: dashed $primary;
-    background: transparent;
-    color: $primary;
+    min-width: 10;
     text-style: bold;
 }
 
-#send:hover {
-    border: dashed $accent;
-    color: $accent;
-    background: transparent;
-}
-
-/* Models Section */
+/* Model Manager Tab */
 #models-container {
     height: 1fr;
-    layout: vertical;
+    padding: 1;
 }
 
 #models-table {
     height: 1fr;
-    background: $surface;
     border: round $border;
+    background: $surface;
     margin-bottom: 1;
 }
 
 #model-actions {
-    height: auto;
+    height: 3;
     margin-bottom: 1;
+    align: left middle;
 }
 
 #model-action-select {
-    width: 38;
+    width: 32;
     height: 3;
-    border: dashed $border;
-    background: transparent;
     margin-right: 1;
 }
 
-#model-action-select:hover {
-    border: dashed $primary;
-}
-
-#download-model {
-    border: dashed $primary;
-    color: $primary;
-}
-
-#download-model:hover {
-    border: dashed $accent;
-    color: $accent;
-}
-
-#switch-model {
-    border: dashed $success;
-    color: $success;
-}
-
-#switch-model:hover {
-    border: dashed $accent;
-    color: $accent;
+#model-actions Button {
+    margin-right: 1;
 }
 
 #action-output {
-    height: 5;
+    height: 6;
+    border: dashed $border;
     background: $panel;
-    border: round $border;
     padding: 1;
-    color: $text-muted;
+    color: $text;
 }
 
-/* System Dashboard */
+/* System Health Tab */
 #system-grid {
     grid-size: 3;
     grid-gutter: 1;
-    height: auto;
+    height: 1fr;
     margin-bottom: 1;
 }
 
 .system-card {
-    background: $panel;
     border: round $border;
+    background: $panel;
     padding: 1;
-    height: 9;
+    color: $text;
 }
 
 .system-card.highlight {
@@ -294,60 +332,10 @@ SelectCurrent {
 }
 
 #runtime-actions {
-    height: auto;
-    margin-top: 1;
-}
-
-/* Buttons - Stylish Dashed & Compact */
-Button {
     height: 3;
-    min-width: 8;
-    border: dashed $border;
-    background: transparent;
-    color: $text;
-    text-style: bold;
-    padding: 0 1;
+    align: left middle;
+}
+
+#runtime-actions Button {
     margin-right: 1;
-}
-
-Button:hover {
-    background: transparent;
-    border: dashed $accent;
-    color: $accent;
-}
-
-Button.-primary {
-    border: dashed $primary;
-    background: transparent;
-    color: $primary;
-}
-
-Button.-primary:hover {
-    border: dashed $accent;
-    color: $accent;
-    background: transparent;
-}
-
-Button.-success {
-    border: dashed $success;
-    background: transparent;
-    color: $success;
-}
-
-Button.-success:hover {
-    border: dashed $accent;
-    color: $accent;
-    background: transparent;
-}
-
-Button.-warning {
-    border: dashed $warning;
-    background: transparent;
-    color: $warning;
-}
-
-Button.-warning:hover {
-    border: dashed $accent;
-    color: $accent;
-    background: transparent;
 }
