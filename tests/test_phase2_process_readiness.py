@@ -112,6 +112,7 @@ class Phase2ProcessAndReadinessTests(unittest.TestCase):
             from unittest.mock import patch
             with patch("subprocess.Popen") as mock_popen:
                 mock_proc = mock_popen.return_value
+                mock_proc.pid = 1234
                 mock_proc.poll.return_value = None
                 mgr.start_gateway(wait_for_ready=False)
 

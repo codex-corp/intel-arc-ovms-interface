@@ -84,10 +84,12 @@ class ProcessManager:
     def _pid_file_for(self, component: str) -> Path:
         return self._state_dir / f"{component}.pid"
 
-    def _save_pid(self, component: str, pid: int) -> None:
+    def _save_pid(self, component: str, pid: Any) -> None:
         try:
-            data = {"pid": pid, "component": component, "timestamp": time.time()}
-            self._pid_file_for(component).write_text(json.dumps(data), encoding="utf-8")
+            pid_int = int(pid) if isinstance(pid, (int, str)) and str(pid).isdigit() else 0
+            if pid_int > 0:
+                data = {"pid": pid_int, "component": component, "timestamp": time.time()}
+                self._pid_file_for(component).write_text(json.dumps(data), encoding="utf-8")
         except Exception:
             pass
 
