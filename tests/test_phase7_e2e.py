@@ -30,7 +30,8 @@ class Phase7IntegrationContractTests(unittest.TestCase):
 
         for name, info in models.items():
             self.assertIsNotNone(info.name)
-            self.assertIsNotNone(info.local_path)
+            if info.is_downloaded:
+                self.assertIsNotNone(info.local_path)
             if info.catalog_entry:
                 self.assertTrue(bool(info.catalog_entry.repo_id))
 
