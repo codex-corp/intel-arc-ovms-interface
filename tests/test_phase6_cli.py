@@ -34,14 +34,15 @@ class Phase6CliTests(unittest.TestCase):
             with patch("tools.core.cli.load_core_config", return_value=cfg):
                 with patch("tools.core.cli.probe_ovms_readiness") as mock_ovms:
                     mock_ovms.return_value = MagicMock(reachable=False, models=[], is_ready=False, error="offline")
-                    with patch("sys.stdout", new=io.StringIO()) as fake_out:
-                        ret = cli.main(["status", "--json"])
-                        self.assertEqual(ret, 0)
-                        data = json.loads(fake_out.getvalue())
-                        self.assertIn("ovms", data)
-                        self.assertIn("gateway", data)
-                        self.assertIn("models", data)
-                        self.assertFalse(data["ovms"]["reachable"])
+                    with patch("tools.core.cli.probe_gateway_readiness", return_value=False):
+                        with patch("sys.stdout", new=io.StringIO()) as fake_out:
+                            ret = cli.main(["status", "--json"])
+                            self.assertEqual(ret, 0)
+                            data = json.loads(fake_out.getvalue())
+                            self.assertIn("ovms", data)
+                            self.assertIn("gateway", data)
+                            self.assertIn("models", data)
+                            self.assertFalse(data["ovms"]["reachable"])
 
     def test_cli_list_json(self):
         with tempfile.TemporaryDirectory() as tmp:

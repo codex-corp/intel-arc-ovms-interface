@@ -34,6 +34,7 @@ jobs:
         run: python -c "from tools.tui.app import ArcAiApp; print(ArcAiApp.TITLE)"
 
       - name: Python unit tests
+        shell: cmd
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: PowerShell smoke checks
