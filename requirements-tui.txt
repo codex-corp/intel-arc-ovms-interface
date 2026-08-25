@@ -2,3 +2,4 @@ aiohttp==3.13.3
 textual==8.2.8
 huggingface_hub==1.4.1
 requests==2.32.5
+psutil==5.9.8

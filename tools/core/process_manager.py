@@ -61,15 +61,15 @@ def _verify_process_signature(pid: int, expected_token: str) -> bool:
     """Validates that the running process with given PID belongs to the expected component."""
     if not _is_pid_alive(pid):
         return False
-    if sys.platform == "win32":
-        try:
-            cmd = f'powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId = {pid}\\").CommandLine"'
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-            cmdline = res.stdout.strip().lower()
-            return expected_token.lower() in cmdline
-        except Exception:
-            return True  # Fallback to PID alive if query times out
-    return True
+    try:
+        import psutil
+        p = psutil.Process(pid)
+        if not p.is_running():
+            return False
+        cmdline = " ".join(p.cmdline()).lower()
+        return expected_token.lower() in cmdline or expected_token.lower() in p.name().lower()
+    except Exception:
+        return _is_pid_alive(pid)
 
 
 class ProcessManager:
