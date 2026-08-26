@@ -84,31 +84,204 @@ Tab.-active {
 /* Chat Canvas & Stream Area */
 #chat-scroll {
     height: 1fr;
+    min-height: 8;
     background: $background;
     border: none;
     padding: 1 1 0 1;
-    margin-bottom: 0;
+    margin-bottom: 1;
     scrollbar-size-vertical: 1;
 }
 
-/* User Message Card */
-.user-msg-card {
+/* Welcome Card */
+.welcome-card {
+    background: $surface 40%;
+    border-left: outer $primary;
+    padding: 1;
+    margin: 0 0 1 0;
+}
+
+/* UserInput (exact Toad conversation styling) */
+UserInput, .user-input-block, .user-msg-card {
+    border-left: blank $secondary;
+    background: $secondary 15%;
+    padding: 1 1 1 1;
     margin: 1 0;
-    padding: 0 1;
-    background: $boost 35%;
-    border-left: outer $secondary;
+    height: auto;
     color: $text;
+}
+
+UserInput.-rtl, .user-input-block.-rtl, .user-msg-card.-rtl {
+    border-left: none;
+    border-right: blank $secondary;
+    text-align: right;
+}
+
+UserInput #prompt, .user-input-block #prompt {
+    width: auto;
+    margin-right: 1;
+    color: $text-secondary;
+    text-style: bold;
+}
+
+UserInput #content, .user-input-block #content, UserInput Markdown, .user-input-block Markdown {
+    width: 1fr;
+    padding: 0;
+}
+
+UserInput Markdown > MarkdownBlock:last-child, .user-input-block Markdown > MarkdownBlock:last-child {
+    margin-bottom: 0;
+}
+
+UserInput MarkdownFence, .user-input-block MarkdownFence {
+    margin: 0 0 1 0;
+}
+
+/* AgentResponse (exact Toad ConversationMarkdown styling) */
+AgentResponse, .agent-response-block, .chat-assistant-card {
+    min-height: 1;
+    padding: 0;
+    margin: 1 0;
+    overflow-x: auto;
+    scrollbar-size-horizontal: 0;
+    layout: stream;
+    height: auto;
+    color: $text;
+}
+
+AgentResponse > MarkdownBlock:last-child, .agent-response-block > MarkdownBlock:last-child {
+    margin-bottom: 0;
+}
+
+.assistant-card-footer {
+    height: 1;
+    margin-top: 1;
+    align: left middle;
+}
+
+.assistant-footer-model {
+    color: $text-muted;
+    text-style: italic;
+    width: 1fr;
+}
+
+.copy-response-btn {
+    min-width: 10;
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    border: none;
+    padding: 0 1;
+    text-style: bold;
+}
+
+.copy-response-btn:hover {
+    background: $primary;
+    color: #ffffff;
+}
+
+/* Conversation Code Fence with Header Toolbar & Copy Button */
+ConversationCodeFence {
+    margin: 1 0;
+    padding: 0;
+    background: $background;
+    border: solid $secondary 40%;
+    width: 1fr;
     height: auto;
 }
 
-/* Assistant Message Card */
-.chat-assistant-card {
+ConversationCodeFence:focus-within {
+    border: solid $accent;
+}
+
+.code-fence-header {
+    height: 1;
+    background: $surface 80%;
+    padding: 0 1;
+    align: left middle;
+    border-bottom: solid $secondary 30%;
+}
+
+.code-fence-lang {
+    color: $accent;
+    text-style: bold;
+    width: 1fr;
+}
+
+.code-fence-copy-btn {
+    min-width: 13;
+    height: 1;
+    background: $panel;
+    color: $text;
+    border: none;
+    padding: 0 1;
+    text-style: bold;
+}
+
+.code-fence-copy-btn:hover {
+    background: $accent;
+    color: #1e1f29;
+}
+
+.code-fence-body {
+    padding: 1 2;
+    overflow-x: auto;
+}
+
+/* Elegant Streaming Markdown Styling */
+Markdown {
+    layout: stream;
+}
+
+MarkdownBlock {
+    margin: 0 0 1 0;
+}
+
+MarkdownH1 {
+    color: $primary;
+    text-style: bold;
+    margin: 0 0 1 0;
+    border-bottom: solid $primary;
+}
+
+MarkdownH2 {
+    color: $primary;
+    text-style: bold;
+    margin: 1 0 0 0;
+}
+
+MarkdownH3 {
+    color: $secondary;
+    text-style: bold;
+    margin: 1 0 0 0;
+}
+
+MarkdownFence {
+    background: $surface;
+    border: round $border;
+    padding: 0 1;
+    margin: 1 0;
+    max-height: 25;
+    overflow-y: auto;
+}
+
+MarkdownTable {
+    background: $surface;
+    border: round $border;
     margin: 1 0;
     padding: 0 1;
-    background: transparent;
-    border: none;
-    color: $text;
-    height: auto;
+}
+
+MarkdownBlockQuote {
+    border-left: outer $secondary;
+    background: $surface 40%;
+    padding: 0 1;
+    margin: 1 0;
+    color: $text-muted;
+}
+
+MarkdownBulletList, MarkdownOrderedList {
+    margin: 0 0 1 0;
+    padding-left: 1;
 }
 
 /* Tool Invocation Header (▶ 🔧 Find files ✓) */
@@ -159,25 +332,51 @@ Tab.-active {
     border: dashed $warning 60%;
     color: $text-muted;
     height: auto;
+    max-height: 12;
+    overflow-y: auto;
+}
+
+/* Slash Complete Popup */
+#slash-complete {
+    display: none;
+    height: auto;
+    max-height: 8;
+    background: $surface;
+    border: round $secondary;
+    padding: 0;
+    margin: 0 0 1 0;
+}
+
+/* Interactive Question Swapper */
+#chat-question {
+    display: none;
+    height: auto;
+    background: black 25%;
+    border: round $primary;
+    padding: 1;
+    margin: 0 0 1 0;
 }
 
 /* Toad-style Prompt Container */
 #chat-compose-container {
     height: auto;
+    max-height: 8;
     background: black 15%;
     border: round $border;
     padding: 0 1;
-    margin: 0 0 0 0;
+    margin: 0 0 1 0;
 }
 
 #chat-compose-container:focus-within {
     border: round $secondary;
 }
 
-#chat-input-row {
+#chat-input-container {
     height: auto;
-    min-height: 3;
-    max-height: 8;
+}
+
+#chat-input-row {
+    height: 3;
     align: left top;
 }
 
@@ -190,9 +389,8 @@ Tab.-active {
 
 #chat-input {
     width: 1fr;
-    height: auto;
-    min-height: 3;
-    max-height: 7;
+    height: 3;
+    max-height: 5;
     background: transparent;
     border: none;
     padding: 0;
@@ -239,40 +437,71 @@ Tab.-active {
     text-align: right;
 }
 
-/* Model Selector Toolbar */
-#chat-model-toolbar {
-    height: 3;
-    margin-top: 0;
+/* Persona Mode Switcher Popup (Rich Floating Card) */
+#mode-switcher {
+    width: 76;
+    height: auto;
+    max-height: 22;
+    background: $surface 95%;
+    border: tall $accent;
+    padding: 1 2;
+    margin: 0 0 1 0;
+    overlay: screen;
+    overflow: hidden;
+    constrain: inside inflect;
+    display: none;
+}
+
+#mode-switcher .mode-switcher-header {
+    height: 1;
+    margin-bottom: 0;
     align: left middle;
 }
 
-#chat-model {
-    width: 30;
-    height: 3;
-    border: dashed $border;
-    background: transparent;
-    margin-right: 1;
-}
-
-#chat-model:hover {
-    border: dashed $secondary;
-}
-
-#clear-chat-btn {
-    min-width: 8;
-    border: dashed $border;
-    background: transparent;
-    color: $text-muted;
-    margin-right: 1;
-}
-
-#clear-chat-btn:hover {
-    border: dashed $warning;
-}
-
-#send {
-    min-width: 10;
+#mode-switcher .mode-switcher-title {
+    color: $accent;
     text-style: bold;
+    width: 1fr;
+}
+
+#mode-switcher .mode-switcher-esc-hint {
+    color: $text-muted;
+    width: auto;
+    text-align: right;
+}
+
+#mode-switcher .mode-switcher-desc {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#mode-switcher #mode-option-list {
+    background: $background 70%;
+    border: solid $secondary 35%;
+    padding: 0;
+    height: auto;
+    max-height: 12;
+}
+
+#mode-switcher #mode-option-list > .option-list--option {
+    padding: 0 1;
+}
+
+#mode-switcher #mode-option-list > .option-list--option-highlighted {
+    background: $accent 30%;
+    color: $text;
+    text-style: bold;
+}
+
+#mode-switcher .mode-switcher-footer {
+    height: 1;
+    margin-top: 1;
+    align: right middle;
+}
+
+#mode-switcher .mode-switcher-hints {
+    color: $text-muted;
+    text-align: right;
 }
 
 /* Model Manager Tab */

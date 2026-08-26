@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.containers import Grid, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Footer, Header, Select, Static, TabbedContent, TabPane, TextArea
@@ -22,12 +23,17 @@ from tools.tui.backend import (
 from tools.tui.chat_client import ChatClient
 from tools.tui.theme import CURATED_THEMES, pill, pill_markup
 from tools.tui.widgets.chat_widgets import (
+    AgentResponse,
+    AgentThought,
     PlanCard,
+    PromptTextArea,
     TerminalToolCard,
-    ThoughtCard,
     ToolCallHeader,
     UserMessageCard,
 )
+from tools.tui.widgets.mode_switcher import BUILTIN_MODES, ModeSwitcher, PersonaMode
+from tools.tui.widgets.question import Ask, Question
+from tools.tui.widgets.slash_command import SlashCommand, SlashComplete
 
 
 class ArcAiApp(App):
@@ -40,6 +46,7 @@ class ArcAiApp(App):
         ("ctrl+t", "toggle_theme", "Theme"),
         ("ctrl+l", "clear_chat", "Clear"),
         ("ctrl+r", "refresh", "Refresh"),
+        ("ctrl+o", "toggle_mode_switcher", "Mode"),
         ("ctrl+q", "quit", "Quit"),
     ]
 
@@ -67,12 +74,38 @@ class ArcAiApp(App):
         self._loaded_models: Set[str] = set()
         self._active_model: str = ""
         self._theme_index = 0
+        self._current_persona: PersonaMode = BUILTIN_MODES[0]
+        self._system_prompt: str = BUILTIN_MODES[0].system_prompt
 
     def on_mount(self) -> None:
         for custom_theme in CURATED_THEMES:
             self.register_theme(custom_theme)
         self.theme = "toad-dark"
         self._theme_index = 0
+
+        # Ensure slash complete and mode switcher are hidden initially
+        try:
+            self.query_one("#slash-complete", SlashComplete).display = False
+        except Exception:
+            pass
+        try:
+            self.query_one("#mode-switcher", ModeSwitcher).display = False
+        except Exception:
+            pass
+
+        # Add initial welcome card to chat stream
+        try:
+            scroll = self.query_one("#chat-scroll", VerticalScroll)
+            welcome_md = (
+                "### ✦ Intel Arc AI Studio\n\n"
+                "Local OpenVINO Model Server & OpenAI-compatible Streaming Gateway.\n\n"
+                "- Type your prompt below and press **Enter** to chat.\n"
+                "- Type `/model <name>` to quickly switch active OpenVINO models.\n"
+                "- Type `/help` to view all slash commands and keyboard shortcuts."
+            )
+            scroll.mount(AgentResponse(welcome_md))
+        except Exception:
+            pass
 
         table = self.query_one("#models-table", DataTable)
         table.add_columns("Status", "Model Identifier", "Local Model Path", "State Hint")
@@ -88,35 +121,35 @@ class ArcAiApp(App):
             yield Static("🧠 MODEL : Loading...", id="pill-model", classes="status-pill accent")
 
         with TabbedContent(initial="chat"):
-            with TabPane("💬 Chat Studio", id="chat"):
+            with TabPane("💬 Playground", id="chat"):
                 yield VerticalScroll(id="chat-scroll")
+                yield SlashComplete(id="slash-complete", dynamic_completer=self._dynamic_slash_completer)
 
-                # Toad-style Prompt Container
+                # Toad-style Prompt Container with Markdown Syntax Highlighting & Question Prompt Swapper
                 with Vertical(id="chat-compose-container"):
-                    with Horizontal(id="chat-input-row"):
-                        yield Static("❯", id="chat-prompt-glyph")
-                        yield TextArea(
-                            placeholder="What would you like to do? (Press Enter / Ctrl+Enter to send)",
-                            id="chat-input",
-                            show_line_numbers=False,
-                        )
-                    with Horizontal(id="prompt-shortcuts-row"):
-                        yield Static(
-                            f"{pill_markup('! shell', '#21222c', '#8be9fd')}  {pill_markup('/ commands', '#21222c', '#bd93f9')}  {pill_markup('@ files', '#21222c', '#50fa7b')}",
-                            id="prompt-shortcuts-text",
-                        )
+                    yield Question(id="chat-question")
+                    with Vertical(id="chat-input-container"):
+                        with Horizontal(id="chat-input-row"):
+                            yield Static("❯", id="chat-prompt-glyph")
+                            yield PromptTextArea(
+                                placeholder="What would you like to do? (Type / for commands, ⏎ to send)",
+                                id="chat-input",
+                            )
+                        with Horizontal(id="prompt-shortcuts-row"):
+                            yield Static(
+                                f"{pill_markup('⏎ send', '#21222c', '#50fa7b')}  "
+                                f"{pill_markup('⇧⏎ newline', '#21222c', '#8be9fd')}  "
+                                f"{pill_markup('/ commands', '#21222c', '#bd93f9')}  "
+                                f"{pill_markup('⇥ complete', '#21222c', '#f1fa8c')}",
+                                id="prompt-shortcuts-text",
+                            )
 
                 # Info Bar matching Toad's #info-container
                 with Horizontal(id="info-container"):
                     yield Static(pill_markup("Intel Arc LLM", "#bd93f9", "#1e1f29"), id="info-agent-pill")
                     yield Static(f" {self.config.root}", id="info-path-text")
-                    yield Static(pill_markup("Default", "#21222c", "#8be9fd"), id="info-mode-pill")
-
-                # Model Selector & Control Toolbar
-                with Horizontal(id="chat-model-toolbar"):
-                    yield Select([], prompt="Select Model", id="chat-model", allow_blank=True)
-                    yield Button("🧹 Clear", id="clear-chat-btn")
-                    yield Button("➤ Send", id="send", variant="primary")
+                    yield Static(pill_markup(f"{self._current_persona.icon} {self._current_persona.name}", "#21222c", "#8be9fd"), id="info-mode-pill")
+                    yield ModeSwitcher(id="mode-switcher")
 
             with TabPane("📦 Model Manager", id="models"):
                 with Vertical(id="models-container"):
@@ -142,9 +175,48 @@ class ArcAiApp(App):
 
         yield Footer()
 
+    def _dynamic_slash_completer(self, cmd: str, arg_prefix: str) -> List[Tuple[str, str]]:
+        """Provides dynamic autocomplete suggestions for model names, themes, and options."""
+        clean_prefix = arg_prefix.strip().lower()
+        results: List[Tuple[str, str]] = []
+
+        if cmd in {"/model", "/switch"}:
+            for m in self._downloaded_models:
+                if not clean_prefix or clean_prefix in m.lower():
+                    results.append((m, "Downloaded & Ready [LOCAL]"))
+            for m in self._models:
+                if m not in self._downloaded_models and (not clean_prefix or clean_prefix in m.lower()):
+                    results.append((m, "Registered Model [DOWNLOAD REQ]"))
+
+        elif cmd == "/enable":
+            for m in self._models:
+                if not clean_prefix or clean_prefix in m.lower():
+                    is_en = m in getattr(self, "_enabled_models", [])
+                    results.append((m, "Currently Enabled" if is_en else "Available to Enable"))
+
+        elif cmd == "/disable":
+            enabled = getattr(self, "_enabled_models", []) or ([self._active_model] if self._active_model else self._models)
+            for m in enabled:
+                if not clean_prefix or clean_prefix in m.lower():
+                    results.append((m, "Currently Enabled in config"))
+
+        elif cmd == "/pull":
+            for m in self._models:
+                if not clean_prefix or clean_prefix in m.lower():
+                    is_dl = m in self._downloaded_models
+                    desc = "Installed [READY]" if is_dl else "Download from Catalog"
+                    results.append((m, desc))
+
+        elif cmd == "/theme":
+            for th in self.THEME_NAMES:
+                if not clean_prefix or clean_prefix in th.lower():
+                    results.append((th, "Theme Palette"))
+
+        return results
+
     def action_focus_input(self) -> None:
         try:
-            self.query_one("#chat-input", TextArea).focus()
+            self.query_one("#chat-input", PromptTextArea).focus()
         except Exception:
             pass
 
@@ -161,6 +233,122 @@ class ArcAiApp(App):
         new_theme = self.THEME_NAMES[self._theme_index]
         self.theme = new_theme
         self.notify(f"Theme switched to: {new_theme}", title="Theme Changed")
+
+    def action_toggle_mode_switcher(self) -> None:
+        """Toggle the persona mode switcher popup."""
+        try:
+            switcher = self.query_one("#mode-switcher", ModeSwitcher)
+            switcher.display = not switcher.display
+            if switcher.display:
+                switcher.focus_options()
+            else:
+                self.query_one("#chat-input", PromptTextArea).focus()
+        except Exception:
+            pass
+
+    @on(events.Click, "#info-mode-pill")
+    def on_mode_pill_click(self, event: events.Click) -> None:
+        """Clicking mode pill in info bar toggles the persona mode switcher."""
+        self.action_toggle_mode_switcher()
+
+    @on(ModeSwitcher.ModeSelected)
+    def on_mode_selected(self, event: ModeSwitcher.ModeSelected) -> None:
+        """Handle persona mode selection from the ModeSwitcher popup."""
+        switcher = self.query_one("#mode-switcher", ModeSwitcher)
+        mode = switcher.get_mode(event.mode_id)
+        if mode is None:
+            return
+
+        self._current_persona = mode
+        self._system_prompt = mode.system_prompt
+
+        # Update the mode pill in the info bar
+        try:
+            pill_widget = self.query_one("#info-mode-pill", Static)
+            pill_widget.update(pill_markup(f"{mode.icon} {mode.name}", "#21222c", "#8be9fd"))
+        except Exception:
+            pass
+
+        # Update prompt placeholder
+        try:
+            chat_input = self.query_one("#chat-input", PromptTextArea)
+            chat_input.placeholder = mode.placeholder
+        except Exception:
+            pass
+
+        # Reset conversation with new system prompt
+        self.messages.clear()
+        self.notify(f"Persona switched to: {mode.icon} {mode.name}\n{mode.description}", title="Mode Changed")
+        try:
+            self.query_one("#chat-input", PromptTextArea).focus()
+        except Exception:
+            pass
+
+    @on(AgentResponse.CodeCopied)
+    def on_code_copied(self, event: AgentResponse.CodeCopied) -> None:
+        """Handle code fence clipboard copy notification."""
+        lang = event.language or "code"
+        self.notify(f"Copied {lang.upper()} code to clipboard ({event.length} chars)", title="📋 Code Copied")
+
+    @on(AgentResponse.ResponseCopied)
+    def on_response_copied(self, event: AgentResponse.ResponseCopied) -> None:
+        """Handle full response clipboard copy notification."""
+        self.notify(f"Copied full assistant response to clipboard ({event.length} chars)", title="📋 Response Copied")
+
+    @on(TextArea.Changed)
+    def on_text_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "chat-input":
+            text = event.text_area.text
+            slash_comp = self.query_one("#slash-complete", SlashComplete)
+            if text.startswith("/") and "\n" not in text:
+                slash_comp.filter_commands(text)
+            else:
+                slash_comp.display = False
+
+    @on(SlashComplete.Selected)
+    def on_slash_selected(self, event: SlashComplete.Selected) -> None:
+        chat_input = self.query_one("#chat-input", PromptTextArea)
+        chat_input.text = f"{event.completion.strip()} "
+        chat_input.focus()
+
+    @on(SlashComplete.Dismissed)
+    def on_slash_dismissed(self, event: SlashComplete.Dismissed) -> None:
+        chat_input = self.query_one("#chat-input", PromptTextArea)
+        chat_input.focus()
+
+    @on(PromptTextArea.TabCompleteRequested)
+    def on_tab_complete(self, event: PromptTextArea.TabCompleteRequested) -> None:
+        chat_input = self.query_one("#chat-input", PromptTextArea)
+        slash_comp = self.query_one("#slash-complete", SlashComplete)
+        if slash_comp.display:
+            slash_comp.action_submit()
+        else:
+            text = chat_input.text.strip()
+            if text.startswith("/"):
+                slash_comp.filter_commands(text)
+                if slash_comp.display:
+                    slash_comp.action_submit()
+        chat_input.focus()
+
+    @on(PromptTextArea.Submitted)
+    async def on_prompt_submitted(self, event: PromptTextArea.Submitted) -> None:
+        await self._submit_chat()
+
+    @on(Question.Answer)
+    def on_question_answered(self, event: Question.Answer) -> None:
+        self.query_one("#chat-input-container").display = True
+        self.query_one("#chat-input", PromptTextArea).focus()
+
+    @on(Question.Dismissed)
+    def on_question_dismissed(self, event: Question.Dismissed) -> None:
+        self.query_one("#chat-input-container").display = True
+        self.query_one("#chat-input", PromptTextArea).focus()
+
+    def ask(self, ask_payload: Ask) -> None:
+        """Presents an interactive multi-choice question in the prompt area."""
+        self.query_one("#chat-input-container").display = False
+        question_widget = self.query_one("#chat-question", Question)
+        question_widget.present(ask_payload)
 
     def _refresh_runtime(self, preserve_action_output: bool = False) -> None:
         status = get_runtime_status(self.config)
@@ -240,28 +428,7 @@ class ArcAiApp(App):
             f"• Active Theme: {self.theme}"
         )
 
-        # 1. Chat Studio Model Selector
-        model_select = self.query_one("#chat-model", Select)
-        installed_options = [
-            (f"{m} ★ [ACTIVE]" if m == self._active_model else f"{m} [READY]", m)
-            for m in self._downloaded_models
-        ]
-        if not installed_options:
-            installed_options = [("No Models Downloaded", Select.BLANK)]
-
-        current_val = model_select.value
-        model_select.set_options(installed_options)
-
-        if current_val in self._downloaded_models:
-            model_select.value = current_val
-        elif self._active_model in self._downloaded_models:
-            model_select.value = self._active_model
-        elif self._downloaded_models:
-            model_select.value = self._downloaded_models[0]
-        else:
-            model_select.value = Select.BLANK
-
-        # 2. Model Manager Action Dropdown
+        # 1. Model Manager Action Dropdown
         action_select = self.query_one("#model-action-select", Select)
         current_action_model = str(action_select.value) if action_select.value is not Select.BLANK else ""
 
@@ -370,26 +537,19 @@ class ArcAiApp(App):
                 )
 
     async def on_key(self, event) -> None:
-        if event.key in {"enter", "ctrl+enter", "ctrl+j"}:
+        if event.key in {"shift+enter", "shift+return", "ctrl+j"}:
             try:
-                chat_input = self.query_one("#chat-input", TextArea)
+                chat_input = self.query_one("#chat-input", PromptTextArea)
                 if self.focused == chat_input:
-                    # If shift is held or multiline intended, allow default
-                    if event.key == "shift+enter":
-                        return
+                    chat_input.action_newline()
                     event.prevent_default()
                     event.stop()
-                    await self._submit_chat()
             except Exception:
                 pass
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "send":
-            await self._submit_chat()
-        elif button_id == "clear-chat-btn":
-            self.action_clear_chat()
-        elif button_id in {"refresh-models", "refresh-status"}:
+        if button_id in {"refresh-models", "refresh-status"}:
             self.action_refresh()
         elif button_id == "download-model":
             self._run_download_action()
@@ -402,31 +562,158 @@ class ArcAiApp(App):
         elif button_id == "start-gateway":
             self._start_component("gateway")
 
+    async def _handle_slash_command(self, text: str) -> bool:
+        """Processes slash commands typed in the prompt bar."""
+        parts = text.strip().split(maxsplit=1)
+        cmd = parts[0].lower()
+        arg = parts[1].strip() if len(parts) > 1 else ""
+
+        container = self.query_one("#chat-scroll", VerticalScroll)
+
+        if cmd == "/clear":
+            self.action_clear_chat()
+            return True
+        elif cmd == "/theme":
+            if arg and arg in self.THEME_NAMES:
+                self.theme = arg
+                self.notify(f"Theme set to {arg}.", title="Theme Updated")
+            else:
+                self.action_toggle_theme()
+            return True
+        elif cmd == "/status":
+            st = get_runtime_status(self.config)
+            status_text = (
+                f"### Runtime Status\n"
+                f"- **OVMS Port {self.config.ovms_port}:** {'🟢 ONLINE' if st.ovms_reachable else '🔴 OFFLINE'}\n"
+                f"- **Gateway Port {self.config.proxy_port}:** {'🟢 ACTIVE' if st.gateway_reachable else '⚪ STANDBY'}\n"
+                f"- **Active Model:** `{st.configured_model or 'None'}`\n"
+                f"- **Loaded in RAM/GPU:** `{', '.join(st.loaded_models) or 'None'}`\n"
+                f"- **Downloaded Models:** `{len(st.downloaded_models)} ready`"
+            )
+            await container.mount(AgentResponse(status_text))
+            container.scroll_end(animate=True)
+            return True
+        elif cmd == "/list":
+            st = get_runtime_status(self.config)
+            all_m = sorted(set(st.registry_models) | set(st.loaded_models) | set(st.downloaded_models))
+            lines = [
+                "### Model Catalog & Local Status\n",
+                "| Status | Model Identifier | Local Path |",
+                "|---|---|---|",
+            ]
+            for m in all_m:
+                path_val = st.registry_models.get(m, self.config.model_path if m == st.configured_model else "-")
+                if m == self._active_model and st.loaded_models:
+                    badge = "`● LOADED`"
+                elif m == self._active_model:
+                    badge = "`● ACTIVE`"
+                elif m in self._downloaded_models:
+                    badge = "`● READY`"
+                else:
+                    badge = "`○ NOT DOWNLOADED`"
+                lines.append(f"| {badge} | `{m}` | `{path_val}` |")
+            await container.mount(AgentResponse("\n".join(lines)))
+            container.scroll_end(animate=True)
+            return True
+        elif cmd == "/help":
+            help_md = (
+                "### Slash Commands & Shortcuts\n"
+                "- `/list`: List all discovered models and readiness\n"
+                "- `/status`: View inference engine & gateway status\n"
+                "- `/switch <name>` or `/model <name>`: Switch active OpenVINO model\n"
+                "- `/enable <name>`: Enable model in OVMS dynamic configuration\n"
+                "- `/disable <name>`: Disable model in OVMS dynamic configuration\n"
+                "- `/pull <name>`: Download model weights from catalog\n"
+                "- `/reload`: Dynamic config reload\n"
+                "- `/rollback`: Restore previous config backup snapshot\n"
+                "- `/theme <name>`: Switch UI theme palette\n"
+                "- `/clear`: Clear conversation history\n"
+                "- `⏎`: Send message\n"
+                "- `⇧⏎` / `Ctrl+J`: Newline\n"
+                "- `⇥`: Autocomplete slash command / model\n"
+                "- `Ctrl+F`: Focus chat prompt\n"
+                "- `Ctrl+T`: Cycle themes\n"
+                "- `Ctrl+L`: Clear chat\n"
+                "- `Ctrl+R`: Refresh runtime status\n"
+                "- `Ctrl+Q`: Quit studio"
+            )
+            await container.mount(AgentResponse(help_md))
+            container.scroll_end(animate=True)
+            return True
+        elif cmd in {"/model", "/switch"}:
+            if not arg:
+                self.notify("Usage: /switch <model_name>", severity="warning")
+            else:
+                self._run_model_action("switch", model_override=arg)
+            return True
+        elif cmd == "/enable":
+            if not arg:
+                self.notify("Usage: /enable <model_name>", severity="warning")
+            else:
+                self._run_model_action("enable", model_override=arg)
+            return True
+        elif cmd == "/disable":
+            if not arg:
+                self.notify("Usage: /disable <model_name>", severity="warning")
+            else:
+                self._run_model_action("disable", model_override=arg)
+            return True
+        elif cmd == "/pull":
+            if not arg:
+                self.notify("Usage: /pull <model_name>", severity="warning")
+            else:
+                # Ask confirmation with interactive Question widget
+                self.ask(Ask(
+                    question=f"Download and verify weights for model '{arg}'?",
+                    options=["Yes, download now", "Cancel"],
+                    callback=lambda idx, label: self._run_download_action(model_override=arg) if idx == 0 else None,
+                    details=f"Target repository directory: `models/{arg}`",
+                ))
+            return True
+        elif cmd == "/reload":
+            self._run_model_action("reload", requires_model=False)
+            return True
+        elif cmd == "/rollback":
+            self.ask(Ask(
+                question="Rollback configuration to previous backup snapshot?",
+                options=["Yes, restore backup", "Cancel"],
+                callback=lambda idx, label: self._run_model_action("rollback", requires_model=False) if idx == 0 else None,
+                details="Restores the previous `config.json` state and reloads OVMS.",
+            ))
+            return True
+
+        return False
+
     async def _submit_chat(self) -> None:
-        input_widget = self.query_one("#chat-input", TextArea)
+        input_widget = self.query_one("#chat-input", PromptTextArea)
         text = input_widget.text.strip()
         if not text:
             return
 
-        model_select = self.query_one("#chat-model", Select)
-        model = str(model_select.value) if model_select.value is not Select.BLANK else ""
+        # Handle slash commands directly
+        if text.startswith("/"):
+            input_widget.text = ""
+            handled = await self._handle_slash_command(text)
+            if handled:
+                return
+
+        model = self._active_model or (self._downloaded_models[0] if self._downloaded_models else "")
         if not model:
-            self.notify("Please select an installed model first.", severity="warning", title="No Model")
+            self.notify("No active model configured. Use /model <name> or load one from Model Manager.", severity="warning", title="No Model")
             return
 
         input_widget.text = ""
         input_widget.disabled = True
-        send_button = self.query_one("#send", Button)
-        send_button.disabled = True
 
+        glyph = self.query_one("#chat-prompt-glyph", Static)
         streaming_active = True
 
-        # Animating Send Button
+        # Animating Prompt Glyph
         async def run_spinner() -> None:
             symbols = ["✦", "✧", "✶", "✷", "✸", "✹", "✺"]
             idx = 0
             while streaming_active:
-                send_button.label = f"{symbols[idx % len(symbols)]} Generating"
+                glyph.update(symbols[idx % len(symbols)])
                 idx += 1
                 await asyncio.sleep(0.12)
 
@@ -438,52 +725,57 @@ class ArcAiApp(App):
         user_card = UserMessageCard(text, timestamp=now_str)
         await container.mount(user_card)
 
-        # Thought Process (collapsible / distinct thought card)
-        thought_widget = ThoughtCard("")
+        # Thought Process (streaming Markdown thought stream)
+        thought_widget = AgentThought("")
         thought_widget.display = False
 
-        # Assistant response widget
-        assistant_card = Static("✦ Generating response...", classes="chat-assistant-card")
+        # Assistant streaming Markdown response widget
+        assistant_card = AgentResponse("", model_name=model)
         await container.mount(thought_widget, assistant_card)
         container.scroll_end(animate=False)
 
         self.messages.append({"role": "user", "content": text})
+
+        # Inject persona system prompt as the first message if not already present
+        chat_messages = list(self.messages)
+        if self._system_prompt and (not chat_messages or chat_messages[0].get("role") != "system"):
+            chat_messages.insert(0, {"role": "system", "content": self._system_prompt})
+
         answer = ""
         reasoning = ""
 
         try:
-            async for delta in self.chat_client.stream_chat(model, self.messages):
+            async for delta in self.chat_client.stream_chat(model, chat_messages):
                 if delta.reasoning:
                     reasoning += delta.reasoning
                     if not thought_widget.display:
                         thought_widget.display = True
-                    thought_widget.update(reasoning)
+                    await thought_widget.append_fragment(delta.reasoning)
                     container.scroll_end(animate=False)
 
                 if delta.content:
                     answer += delta.content
-                    assistant_card.update(answer)
+                    await assistant_card.append_fragment(delta.content)
                     container.scroll_end(animate=False)
 
             if not answer:
-                assistant_card.update("[italic red]No text content returned by model.[/]")
+                await assistant_card.append_fragment("*No text content returned by model.*")
             else:
                 self.messages.append({"role": "assistant", "content": answer})
 
         except Exception as exc:
-            assistant_card.update(f"[bold red]❌ Request failed:[/] {exc}")
+            await assistant_card.append_fragment(f"\n\n**Error:** {exc}")
             self.notify(f"Generation error: {exc}", severity="error", title="Chat Error")
         finally:
             streaming_active = False
             await spinner_task
-            send_button.label = "➤ Send"
-            send_button.disabled = False
+            glyph.update("❯")
             input_widget.disabled = False
             input_widget.focus()
             container.scroll_end(animate=True)
 
-    def _run_download_action(self) -> None:
-        model = self._selected_management_model()
+    def _run_download_action(self, model_override: str | None = None) -> None:
+        model = model_override or self._selected_management_model()
         if not model:
             self.notify("Please select a target model to download.", severity="warning")
             return
@@ -513,8 +805,8 @@ class ArcAiApp(App):
         finally:
             self._refresh_runtime(preserve_action_output=True)
 
-    def _run_model_action(self, command: str, *, requires_model: bool = True) -> None:
-        model = self._selected_management_model() if requires_model else None
+    def _run_model_action(self, command: str, *, requires_model: bool = True, model_override: str | None = None) -> None:
+        model = model_override or (self._selected_management_model() if requires_model else None)
         if requires_model and not model:
             self.notify("Please select a target model from the dropdown first.", severity="warning")
             return
